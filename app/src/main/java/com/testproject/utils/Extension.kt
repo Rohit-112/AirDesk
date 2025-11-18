@@ -4,10 +4,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.testproject.service.SendToActionModeCallback
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody
@@ -15,6 +18,21 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+fun View.applySendToCallbackRecursively(context: Context) {
+    when (this) {
+        is TextView -> {
+            setTextIsSelectable(true)
+            customSelectionActionModeCallback = SendToActionModeCallback(context)
+        }
+        is ViewGroup -> {
+            for (i in 0 until childCount) {
+                getChildAt(i).applySendToCallbackRecursively(context)
+            }
+        }
+    }
+}
+
 
 fun Context.showToast(message: String) {
     Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -113,6 +131,7 @@ fun String.convertEpochToDateTime(): String {
     } catch (_: Exception) {
         "Unknown Date"
     }
+
 }
 
 
