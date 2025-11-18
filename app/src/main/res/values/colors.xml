@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="BlackWhite">#FFFFFFFF</color>
+    <color name="transparent">#00ffffff</color>
+    <color name="colorPrimary">#F9AA31</color>
+    <color name="accent">#44DCB8</color>
+    <color name="selected">#F64A14</color>
+    <color name="unselected">#878787</color>
+
+    <color name="text_color_1">#383838</color>
+    <color name="download_image">#F0AF32</color>
+    <color name="download_bhajan">#ee5206</color>
+    <color name="text_color_2">#757575</color>
+    <color name="text_color_3">#575757</color>
+    <color name="text_color_4">#b0b0b0</color>
+    <color name="layout_bg_color">#f5f5f5</color>
+    <color name="layout_dark_bg_color">#14000000</color>
+
+    <color name="colorTransparent">#00000000</color>
+
+    <color name="bottom_nav_color">#ec5a6e</color>
+    <color name="textsColor">#4C4C4C</color>
+    <color name="headingTextNormal">#464A4A</color>
+    <color name="buttonsAppTheme">#FF6B3B</color>
+    <color name="whiteBgColor">#FFFFFF</color>
+    <color name="textWhiteColor">#FFFFFF</color>
+    <color name="cardWhiteColor">#FFFFFF</color>
+    <color name="greenColor">#22A802</color>
+    <color name="redColor">#970202</color>
+    <color name="video_text">#888080</color>
+    <color name="calenderBgColor">#bed1cfcf</color>
+
+    <color name="colorBlack">#000</color>
+    <color name="colorBlackkk">#000</color>
+    <color name="colorBlack1">#000</color>
+    <color name="drawer_inactive">#696969</color>
+    <color name="dull_black">#363535</color>
+    <color name="wheel_active_color">#4CAF50</color>
+    <color name="notification_red">#F44336</color>
+    <color name="black_semi_trans">#7C111111</color>
+    <color name="lighter_gray">#D07C7B7A</color>
+
+    <color name="epg_background">#F8F3F3</color>
+    <color name="epg_channel_layout_background">#F3EFEF</color>
+    <color name="epg_event_layout_background">#F4F1F1</color>
+    <color name="epg_event_layout_background_current">#F1754E</color>
+    <color name="epg_event_layout_text">#191818</color>
+    <color name="epg_time_bar">#F60232</color>
+    <color name="link_color">#1164A6</color>
+    <color name="payment_background_color">#DC6107</color>
+    <color name="payment_card_background_color">#E8F6F3EF</color>
+    <color name="color_black_day_night">#000000</color>
+    <color name="color_white_day_night">#FFFFFF</color>
+    <color name="color_grey_day_light">#D07C7B7A</color>
+    <color name="primary">#2D796D</color>
+    <color name="light_primary">#10B981</color>
+    <color name="fb_blue">#1877F2</color>
+    <color name="banner_dot_gray">#3D3C3C</color>
+
+    <array name="device_colors">
+        <item>@color/colorPrimary</item>
+        <item>@color/selected</item>
+        <item>@color/link_color</item>
+        <item>@color/epg_event_layout_background_current</item>
+        <item>@color/wheel_active_color</item>
+    </array>
+
+</resources>

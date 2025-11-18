@@ -1,0 +1,37 @@
+# Android / Flutter
+*.iml
+.gradle/
+gradle/
+build/
+gradlew
+gradlew.bat
+local.properties
+/.idea
+.DS_Store
+*.log
+android/.gradle/
+*.apk
+*.aab
+pubspec.lock
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/
+ios/Runner.xcworkspace/
+
+# Node / Web
+node_modules/
+dist/
+.next/
+.env
+.env.local
+
+# Firebase
+.firebase/
+.firebaserc
+serviceAccountKey.json
+
+# General
+.DS_Store
+Thumbs.db
