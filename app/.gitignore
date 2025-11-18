@@ -33,5 +33,4 @@ dist/
 serviceAccountKey.json
 
 # General
-.DS_Store
 Thumbs.db
