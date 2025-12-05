@@ -6,92 +6,52 @@
     android:background="#F8FAFD"
     android:padding="16dp">
 
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/sessionCard"
-        android:layout_width="0dp"
+    <LinearLayout
+        android:id="@+id/modeSelectLayout"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="4dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
+        android:gravity="center"
+        android:orientation="vertical"
         app:layout_constraintTop_toTopOf="parent">
 
-        <LinearLayout
-            android:layout_width="match_parent"
+        <Button
+            android:id="@+id/btnSend"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:text="Send" />
 
-            <TextView
-                android:id="@+id/tvSessionCode"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Session Code: 4932"
-                android:textColor="@android:color/black"
-                android:textSize="22sp"
-                android:textStyle="bold" />
+        <Button
+            android:id="@+id/btnReceive"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Receive" />
+    </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvSessionStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="Waiting for another device..."
-                android:textColor="#777"
-                android:textSize="14sp" />
-
-            <Button
-                android:id="@+id/btnGenerateCode"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Generate New Code" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/clipboardCard"
-        android:layout_width="0dp"
+    <LinearLayout
+        android:id="@+id/sendModeLayout"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="4dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        android:layout_marginTop="@dimen/dp16"
-        app:layout_constraintTop_toBottomOf="@id/sessionCard">
+        android:orientation="vertical"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+        <include
+            android:id="@+id/sendInclude"
+            layout="@layout/send_mode_ui" />
+    </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvClipboardTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Last Copied Item"
-                android:textColor="@android:color/black"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+    <LinearLayout
+        android:id="@+id/receiveModeLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent">
 
-            <TextView
-                android:id="@+id/tvClipboardContent"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="(Nothing copied yet)"
-                android:textColor="#555" />
-
-            <Button
-                android:id="@+id/btnSendClipboard"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Send" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+        <include
+            android:id="@+id/receiveInclude"
+            layout="@layout/receive_mode_ui" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
