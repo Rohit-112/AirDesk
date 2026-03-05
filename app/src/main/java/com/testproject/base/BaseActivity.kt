@@ -17,9 +17,8 @@ import kotlinx.coroutines.launch
 
 open class BaseActivity : AppCompatActivity() {
     private var progressBar: Dialog? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
-        window.decorView.rootView?.applySendToCallbackRecursively(this)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         super.onCreate(savedInstanceState)
         initProgressBar()
     }
@@ -40,7 +39,7 @@ open class BaseActivity : AppCompatActivity() {
             progressBar?.dismiss()
         } catch (e: WindowManager.BadTokenException) {
             e.printStackTrace()
-            FirebaseCrashlytics.getInstance().recordException(e)
+//            FirebaseCrashlytics.getInstance().recordException(e)
         }
     }
 
@@ -51,7 +50,7 @@ open class BaseActivity : AppCompatActivity() {
             }
         } catch (e: WindowManager.BadTokenException) {
             hideLoading()
-            FirebaseCrashlytics.getInstance().recordException(e)
+//            FirebaseCrashlytics.getInstance().recordException(e)
         }
     }
 
