@@ -19,21 +19,6 @@ import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
-/**
- * Coroutine-based, lifecycle-aware Firebase sync manager.
- *
- * Responsibilities:
- * - Observes SharedViewModel (sessionCode, isHost, lastSentText) via lifecycleScope and reacts
- * - Writes local clipboard text to the correct firebase node using suspending functions
- * - Attaches/removes ValueEventListener for remote updates (guestClipboard/hostClipboard)
- * - On remote update: programmatically set clipboard (ClipboardMonitor handles suppression)
- *
- * Usage:
- *   val manager = FirebaseSyncManager(context, viewModel, clipboardMonitor)
- *   manager.bind(lifecycleOwner)
- *   ...
- *   manager.shutdown() // when you want to stop listeners and cancel coroutines
- */
 class FirebaseSyncManager(
     private val context: Context,
     private val viewModel: SharedViewModel,
@@ -42,7 +27,6 @@ class FirebaseSyncManager(
 ) {
 
     private val TAG = "FirebaseSyncManager"
-
     private val job = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + job)
 
@@ -50,12 +34,6 @@ class FirebaseSyncManager(
     private var currentIsHost: Boolean = true
     private var remoteListener: ValueEventListener? = null
 
-    private var dbRef: DatabaseReference? = null
-
-    /**
-     * Bind manager to lifecycleOwner. Observers are attached to lifecycleOwner.lifecycleScope,
-     * which avoids leaks when the owner is destroyed.
-     */
     fun bind(lifecycleOwner: LifecycleOwner) {
         lifecycleOwner.lifecycleScope.launch {
             viewModel.sessionCode.observe(lifecycleOwner) { code ->
@@ -74,12 +52,12 @@ class FirebaseSyncManager(
         }
     }
 
-    /**
-     * Gracefully stop everything: remove firebase listeners and cancel coroutines.
-     */
     fun shutdown() {
-        Log.d(TAG, "shutdown: removing listener and cancelling scope")
         removeRemoteListener()
+        val code = currentSession
+        if (currentIsHost && !code.isNullOrEmpty()) {
+            repo.deleteSession(code)
+        }
         job.cancelChildren()
         job.cancel()
         clipboardMonitor.stop()
@@ -87,33 +65,28 @@ class FirebaseSyncManager(
 
     private suspend fun handleSessionChange(code: String?, isHost: Boolean) {
         if (code == currentSession && isHost == currentIsHost) return
-
-        Log.d(TAG, "handleSessionChange -> code=$code isHost=$isHost")
+        
+        if (currentIsHost && !currentSession.isNullOrEmpty() && code != currentSession) {
+            repo.deleteSession(currentSession!!)
+        }
 
         removeRemoteListener()
-
         currentSession = code
         currentIsHost = isHost
 
         if (code.isNullOrEmpty()) {
-            Log.d(TAG, "session cleared")
             viewModel.setConnected(false)
             return
         }
 
-        dbRef = FirebaseDatabase.getInstance().getReference("sessions").child(code)
-
         if (isHost) {
-            try {
-                val ok = ensureSessionNodeSuspend(code)
-                if (ok) {
-                    viewModel.setConnected(true)
-                    attachRemoteListener(code, "guestClipboard")
-                } else {
-                    viewModel.setConnected(false)
-                }
-            } catch (t: Throwable) {
-                Log.e(TAG, "handleSessionChange - ensureSession failed", t)
+            val ok = suspendCoroutine<Boolean> { cont ->
+                repo.ensureSessionNode(code) { cont.resume(it) }
+            }
+            if (ok) {
+                viewModel.setConnected(true)
+                attachRemoteListener(code, "guestClipboard")
+            } else {
                 viewModel.setConnected(false)
             }
         } else {
@@ -122,58 +95,22 @@ class FirebaseSyncManager(
         }
     }
 
-    private suspend fun ensureSessionNodeSuspend(code: String): Boolean = suspendCoroutine { cont ->
-        repo.ensureSessionNode(code) { success ->
-            cont.resume(success)
-        }
-    }
-
-    private suspend fun writeClipboardSuspend(code: String, node: String, text: String): Boolean =
-        suspendCoroutine { cont ->
-            repo.writeClipboard(code, node, text) { success ->
-                cont.resume(success)
-            }
-        }
-
     private fun sendLocalToFirebase(text: String) {
-        val code = currentSession
-        if (code.isNullOrEmpty()) {
-            Log.w(TAG, "sendLocalToFirebase: no session set; ignoring local text")
-            return
-        }
-
+        val code = currentSession ?: return
         val node = if (currentIsHost) "hostClipboard" else "guestClipboard"
-        Log.d(TAG, "sendLocalToFirebase -> sessions/$code/$node : $text")
-
-        scope.launch {
-            try {
-                val ok = writeClipboardSuspend(code, node, text)
-                if (!ok) Log.w(TAG, "sendLocalToFirebase: write failed for $code/$node")
-            } catch (t: Throwable) {
-                Log.e(TAG, "sendLocalToFirebase: exception", t)
-            }
-        }
+        repo.writeClipboard(code, node, text)
     }
 
     private fun attachRemoteListener(code: String, remoteNode: String) {
-        Log.d(TAG, "attachRemoteListener -> $code/$remoteNode")
-        val ref =
-            FirebaseDatabase.getInstance().getReference("sessions").child(code).child(remoteNode)
+        val ref = FirebaseDatabase.getInstance().getReference("sessions").child(code).child(remoteNode)
         remoteListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val text = snapshot.getValue(String::class.java)
-                Log.d(TAG, "remote [$remoteNode] changed -> $text")
                 if (!text.isNullOrEmpty()) {
-                    try {
-                        clipboardMonitor.setClipboardProgrammatically(text)
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "error setting clipboard programmatically", t)
-                    }
+                    clipboardMonitor.setClipboardProgrammatically(text)
                 }
             }
-
             override fun onCancelled(error: DatabaseError) {
-                Log.e(TAG, "remote listener cancelled: ${error.message}")
                 viewModel.setConnected(false)
             }
         }
@@ -184,15 +121,8 @@ class FirebaseSyncManager(
         val code = currentSession ?: return
         val remoteNode = if (currentIsHost) "guestClipboard" else "hostClipboard"
         if (remoteListener == null) return
-
-        try {
-            Log.d(TAG, "removeRemoteListener -> $code/$remoteNode")
-            FirebaseDatabase.getInstance().getReference("sessions").child(code).child(remoteNode)
-                .removeEventListener(remoteListener!!)
-        } catch (t: Throwable) {
-            Log.w(TAG, "removeRemoteListener error", t)
-        } finally {
-            remoteListener = null
-        }
+        FirebaseDatabase.getInstance().getReference("sessions").child(code).child(remoteNode)
+            .removeEventListener(remoteListener!!)
+        remoteListener = null
     }
 }

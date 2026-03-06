@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".MyApplication"
         android:allowBackup="true"
@@ -16,21 +18,13 @@
         <activity
             android:name=".activity.MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.TestProject">
+            android:theme="@style/Theme.TestProject"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-
-        <activity
-            android:name=".activity.SendToReceiverActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:label="sendTo"
-            android:icon="@drawable/setting_icon"
-            android:noHistory="true">
+            <!-- To receive shared text from other apps -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -39,5 +33,4 @@
         </activity>
 
     </application>
-l
 </manifest>

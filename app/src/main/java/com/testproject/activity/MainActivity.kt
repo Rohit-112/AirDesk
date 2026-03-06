@@ -2,6 +2,7 @@ package com.testproject.activity
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.viewModels
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
@@ -24,6 +25,8 @@ class MainActivity : BaseActivity() {
     private lateinit var clipboardMonitor: ClipboardMonitor
     private lateinit var firebaseSyncManager: FirebaseSyncManager
 
+    private val TAG = "MainActivityLogs"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -32,12 +35,14 @@ class MainActivity : BaseActivity() {
 
         setupNavigation()
 
+        // 1. Initialize Monitor
         clipboardMonitor = ClipboardMonitor(this) { text ->
+            Log.d(TAG, "Local copy detected: $text")
             sharedViewModel.updateText(text)
         }
         clipboardMonitor.start()
 
-
+        // 2. Initialize Sync Manager
         firebaseSyncManager = FirebaseSyncManager(
             context = this,
             clipboardMonitor = clipboardMonitor,
@@ -46,6 +51,7 @@ class MainActivity : BaseActivity() {
         )
         firebaseSyncManager.bind(this)
 
+        // 3. Handle data shared from other apps
         handleIncomingSharedText(intent)
         observeViewModel()
     }
@@ -57,13 +63,20 @@ class MainActivity : BaseActivity() {
     }
 
     private fun handleIncomingSharedText(intent: Intent?) {
-        intent?.getStringExtra("newSharedText")?.let { text ->
-            sharedViewModel.updateText(text)
+        if (intent?.action == Intent.ACTION_SEND && "text/plain" == intent.type) {
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+            if (!sharedText.isNullOrEmpty()) {
+                Log.d(TAG, "Incoming shared text: $sharedText")
+                sharedViewModel.updateText(sharedText)
+                // Also update the system clipboard so it's ready to be sent
+                clipboardMonitor.setClipboardProgrammatically(sharedText)
+            }
         }
     }
 
     private fun observeViewModel() {
-        sharedViewModel.lastSentText.observe(this) {
+        sharedViewModel.connected.observe(this) { isConnected ->
+            Log.d(TAG, "Connection status: $isConnected")
         }
     }
 
@@ -78,10 +91,9 @@ class MainActivity : BaseActivity() {
     }
 
     private fun setupNavigation() {
-        val host = supportFragmentManager
+        val navHostFragment = supportFragmentManager
             .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
-
-        binding.bottomNav.setupWithNavController(host.navController)
+        val navController = navHostFragment.navController
+        binding.bottomNav.setupWithNavController(navController)
     }
 }
-
