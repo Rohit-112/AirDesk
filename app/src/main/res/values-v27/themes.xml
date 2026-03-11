@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
+
     <style name="Theme.TestProject" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Main primary colors -->
         <item name="colorPrimary">@color/primary</item>
         <item name="colorOnPrimary">@color/onPrimary</item>
-        <item name="colorPrimaryContainer">@color/light_primary</item>
+        <item name="colorPrimaryContainer">@color/primaryVariant</item>
 
         <!-- Secondary/Accent colors -->
         <item name="colorSecondary">@color/accent</item>

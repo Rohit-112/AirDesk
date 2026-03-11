@@ -3,6 +3,7 @@ package com.testproject.activity
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
@@ -13,6 +14,7 @@ import com.testproject.databinding.ActivityMainBinding
 import com.testproject.sync.ClipboardMonitor
 import com.testproject.sync.FirebaseSyncManager
 import com.testproject.utils.show
+import com.testproject.utils.showToast
 import com.testproject.viewmodel.SharedViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -25,6 +27,7 @@ class MainActivity : BaseActivity() {
     private lateinit var clipboardMonitor: ClipboardMonitor
     private lateinit var firebaseSyncManager: FirebaseSyncManager
 
+    private var backPressedTime: Long = 0
     private val TAG = "MainActivityLogs"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,6 +57,29 @@ class MainActivity : BaseActivity() {
         // 3. Handle data shared from other apps
         handleIncomingSharedText(intent)
         observeViewModel()
+        setupBackPressed()
+    }
+
+    private fun setupBackPressed() {
+        val navHostFragment = supportFragmentManager
+            .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
+        val navController = navHostFragment.navController
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (navController.currentDestination?.id == R.id.homeFragment) {
+                    if (backPressedTime + 2000 > System.currentTimeMillis()) {
+                        finishAffinity() // Exit app and clear stack
+                    } else {
+                        showToast("Press back again to exit")
+                    }
+                    backPressedTime = System.currentTimeMillis()
+                } else {
+                    // If not on home, let the navController handle back (go to home)
+                    navController.popBackStack()
+                }
+            }
+        })
     }
 
     override fun onNewIntent(intent: Intent) {

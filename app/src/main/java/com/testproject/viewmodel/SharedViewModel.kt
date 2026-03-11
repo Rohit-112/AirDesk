@@ -22,6 +22,10 @@ class SharedViewModel : ViewModel() {
     private val _connected = MutableLiveData(false)
     val connected: LiveData<Boolean> = _connected
 
+    // New: Tracks if the OTHER device is actually online
+    private val _peerConnected = MutableLiveData(false)
+    val peerConnected: LiveData<Boolean> = _peerConnected
+
     fun updateText(text: String?) {
         _lastSentText.value = text
     }
@@ -35,9 +39,14 @@ class SharedViewModel : ViewModel() {
         _sessionCode.value = null
         _isHost.value = null
         _connected.value = false
+        _peerConnected.value = false
     }
 
     fun setConnected(value: Boolean) {
         _connected.postValue(value)
+    }
+
+    fun setPeerConnected(value: Boolean) {
+        _peerConnected.postValue(value)
     }
 }

@@ -64,10 +64,17 @@ dependencies {
     implementation(libs.androidx.navigation.fragment)       // Fragment navigation host
     implementation(libs.androidx.navigation.ui.ktx)         // NavigationUI (ActionBar, DrawerLayout)
 
+    // DataStore
+    implementation(libs.androidx.datastore.preferences)
+
+    // Tink Security
+    implementation(libs.tink.android)
+
     implementation(platform(libs.firebase.bom))              // Firebase BOM for version alignment
     implementation(libs.firebase.analytics)                 // Firebase Analytics
     implementation(libs.firebase.crashlytics)               // Crashlytics
     implementation(libs.firebase.database)                  // Realtime Database
+    implementation(libs.firebase.auth)                      // Firebase Auth
 
     implementation(libs.retrofit)                           // Retrofit client
     implementation(libs.converter.gson)                     // Gson converter

@@ -1,5 +1,39 @@
 <resources>
-    <string name="app_name">TestProject</string>
+    <string name="app_name">LinkShare</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="transfer">Transfer</string>
+    <string name="activity">Activity</string>
+    <string name="profile">Profile</string>
+
+    <string name="status_connected">CONNECTED</string>
+    <string name="status_waiting">WAITING FOR PEER</string>
+    <string name="status_not_connected">NOT CONNECTED</string>
+    <string name="connected_to">Connected to: Code %1$s</string>
+
+    <string name="your_6_digit_code">YOUR 6-DIGIT CODE</string>
+    <string name="tap_to_share">Share this code with your peer to connect</string>
+    <string name="enter_code_to_connect">ENTER CODE TO CONNECT</string>
+    <string name="connect">Connect</string>
+    <string name="session_code_hint">0 0 0 0 0 0</string>
+
+    <string name="transfer_control">TRANSFER CONTROL</string>
+    <string name="share_new_item">SHARE NEW ITEM</string>
+    <string name="select_and_share_files">Select and Share Files</string>
+    <string name="active_transfer_queue">ACTIVE TRANSFER QUEUE</string>
+
+    <string name="my_shared_items_label">MY SHARED ITEMS (WHAT WE SHARE)</string>
+    <string name="received_items_label">RECEIVED ITEMS (WHAT WE GET)</string>
+
+    <string name="activity_history">ACTIVITY HISTORY</string>
+    <string name="recent_session_activity">RECENT SESSION ACTIVITY</string>
+
+    <string name="no_internet">No internet connection</string>
+    <string name="invalid_code">Invalid Code</string>
+    <string name="joined_successfully">Joined successfully</string>
+    <string name="unknown_error">Unknown error</string>
+    <string name="error">Error</string>
+
+    <!-- Original -->
     <string name="home">Home</string>
     <string name="settings">Settings</string>
 </resources>

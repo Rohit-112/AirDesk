@@ -7,11 +7,16 @@
     <fragment
         android:id="@+id/homeFragment"
         android:name="com.testproject.fragment.HomeFragment"
-        android:label="Home" >
+        android:label="Dashboard" >
         <action
             android:id="@+id/action_homeFragment_to_settingsFragment"
             app:destination="@id/settingsFragment" />
     </fragment>
+
+    <fragment
+        android:id="@+id/activityFragment"
+        android:name="com.testproject.fragment.ActivityFragment"
+        android:label="Activity" />
 
     <fragment
         android:id="@+id/settingsFragment"

@@ -12,7 +12,6 @@ import com.testproject.R
 import com.testproject.helper.CustomBottomSheetDialog
 import com.testproject.helper.Progressbar
 import com.testproject.network.NetworkUtils
-import com.testproject.utils.applySendToCallbackRecursively
 import kotlinx.coroutines.launch
 
 open class BaseActivity : AppCompatActivity() {

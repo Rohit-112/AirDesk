@@ -10,7 +10,6 @@ import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
-import com.testproject.service.SendToActionModeCallback
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody
@@ -18,21 +17,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-fun View.applySendToCallbackRecursively(context: Context) {
-    when (this) {
-        is TextView -> {
-            setTextIsSelectable(true)
-            customSelectionActionModeCallback = SendToActionModeCallback(context)
-        }
-        is ViewGroup -> {
-            for (i in 0 until childCount) {
-                getChildAt(i).applySendToCallbackRecursively(context)
-            }
-        }
-    }
-}
-
 
 fun Context.showToast(message: String) {
     Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -84,55 +68,3 @@ inline fun String?.letIfNotNullOrEmpty(block: (String) -> Unit) {
         block(this)
     }
 }
-
-fun <T> insertCustomItems(
-    originalList: List<T>,
-    createItem: (Int) -> T?,
-    includeInitial: (() -> T?)? = null
-): List<T> {
-    val resultList = mutableListOf<T>()
-
-    includeInitial?.invoke()?.let { resultList.add(it) }
-
-    originalList.forEachIndexed { index, item ->
-        resultList.add(item)
-        createItem(index)?.let { resultList.add(it) }
-    }
-
-    return resultList
-}
-
-fun String.extractYoutubeId(): String? {
-    val regexList = listOf(
-        "(?:https?://)?(?:www\\.)?youtube\\.com/watch\\?v=([\\w-]{11})",
-        "(?:https?://)?(?:www\\.)?youtu\\.be/([\\w-]{11})",
-        "(?:https?://)?(?:www\\.)?youtube\\.com/embed/([\\w-]{11})",
-        "(?:https?://)?(?:www\\.)?youtube\\.com/shorts/([\\w-]{11})",
-        "^([\\w-]{11})$"
-    )
-
-    for (pattern in regexList) {
-        val match = Regex(pattern).find(this)
-        if (match != null && match.groupValues.size > 1) {
-            return match.groupValues[1]
-        }
-    }
-    return null
-}
-
-
-fun String.convertEpochToDateTime(): String {
-    if (this.isEmpty()) return "Unknown Date"
-    return try {
-        val timestamp = this.toLong()
-        val date = Date(timestamp)
-        val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-        sdf.format(date)
-    } catch (_: Exception) {
-        "Unknown Date"
-    }
-
-}
-
-
-

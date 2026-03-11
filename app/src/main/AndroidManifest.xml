@@ -16,14 +16,20 @@
         android:theme="@style/Theme.TestProject">
 
         <activity
-            android:name=".activity.MainActivity"
+            android:name=".activity.SplashActivity"
             android:exported="true"
-            android:theme="@style/Theme.TestProject"
-            android:windowSoftInputMode="adjustResize">
+            android:theme="@style/Theme.TestProject">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".activity.MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.TestProject"
+            android:windowSoftInputMode="adjustPan">
             <!-- To receive shared text from other apps -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
