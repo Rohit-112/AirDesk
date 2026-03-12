@@ -22,9 +22,12 @@ class SharedViewModel : ViewModel() {
     private val _connected = MutableLiveData(false)
     val connected: LiveData<Boolean> = _connected
 
-    // New: Tracks if the OTHER device is actually online
     private val _peerConnected = MutableLiveData(false)
     val peerConnected: LiveData<Boolean> = _peerConnected
+
+    // New: Tracks incoming content (text or file protocol)
+    private val _receivedContent = MutableLiveData<String?>()
+    val receivedContent: LiveData<String?> = _receivedContent
 
     fun updateText(text: String?) {
         _lastSentText.value = text
@@ -48,5 +51,9 @@ class SharedViewModel : ViewModel() {
 
     fun setPeerConnected(value: Boolean) {
         _peerConnected.postValue(value)
+    }
+
+    fun setReceivedContent(content: String?) {
+        _receivedContent.postValue(content)
     }
 }

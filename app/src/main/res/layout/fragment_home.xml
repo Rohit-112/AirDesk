@@ -4,7 +4,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background">
+    android:background="@color/background"
+    android:fillViewport="true">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
@@ -212,6 +213,45 @@
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
+        <!-- Queue Section -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/queueCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/white"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp"
+            app:layout_constraintTop_toBottomOf="@id/layoutDisconnected"
+            tools:visibility="visible">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="QUEUE"
+                    android:textColor="@color/accent"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvQueueItems"
+                    android:layout_width="match_parent"
+                    android:layout_height="220dp"
+                    android:layout_marginTop="12dp"
+                    android:scrollbars="vertical"
+                    android:fadeScrollbars="false"
+                    tools:itemCount="3"
+                    tools:listitem="@layout/item_queue" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- CONNECTED UI: Transfer Controls -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/transferCard"
@@ -222,7 +262,7 @@
             app:cardBackgroundColor="@color/white"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp"
-            app:layout_constraintTop_toBottomOf="@id/layoutDisconnected"
+            app:layout_constraintTop_toBottomOf="@id/queueCard"
             tools:visibility="visible">
 
             <LinearLayout
@@ -307,11 +347,12 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/rvSharedItems"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="220dp"
                     android:layout_marginTop="12dp"
-                    android:nestedScrollingEnabled="false"
-                    tools:itemCount="2"
-                    tools:listitem="@android:layout/simple_list_item_1" />
+                    android:scrollbars="vertical"
+                    android:fadeScrollbars="false"
+                    tools:itemCount="3"
+                    tools:listitem="@layout/item_history_activity" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -346,11 +387,12 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/rvReceivedItems"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="220dp"
                     android:layout_marginTop="12dp"
-                    android:nestedScrollingEnabled="false"
-                    tools:itemCount="2"
-                    tools:listitem="@android:layout/simple_list_item_1" />
+                    android:scrollbars="vertical"
+                    android:fadeScrollbars="false"
+                    tools:itemCount="3"
+                    tools:listitem="@layout/item_history_activity" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

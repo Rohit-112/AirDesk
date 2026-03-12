@@ -1,22 +1,31 @@
 package com.testproject.activity
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.testproject.R
 import com.testproject.base.BaseActivity
 import com.testproject.data.FirebaseRepository
+import com.testproject.data.local.HistoryEntity
+import com.testproject.data.local.HistoryRepository
 import com.testproject.databinding.ActivityMainBinding
 import com.testproject.sync.ClipboardMonitor
 import com.testproject.sync.FirebaseSyncManager
+import com.testproject.utils.EncryptionHelper
 import com.testproject.utils.show
 import com.testproject.utils.showToast
 import com.testproject.viewmodel.SharedViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : BaseActivity() {
@@ -26,6 +35,8 @@ class MainActivity : BaseActivity() {
 
     private lateinit var clipboardMonitor: ClipboardMonitor
     private lateinit var firebaseSyncManager: FirebaseSyncManager
+    
+    @Inject lateinit var historyRepository: HistoryRepository
 
     private var backPressedTime: Long = 0
     private val TAG = "MainActivityLogs"
@@ -46,16 +57,18 @@ class MainActivity : BaseActivity() {
         clipboardMonitor.start()
 
         // 2. Initialize Sync Manager
+        val encryptionHelper = EncryptionHelper(this)
         firebaseSyncManager = FirebaseSyncManager(
             context = this,
             clipboardMonitor = clipboardMonitor,
             viewModel = sharedViewModel,
+            encryptionHelper = encryptionHelper,
             repo = FirebaseRepository()
         )
         firebaseSyncManager.bind(this)
 
         // 3. Handle data shared from other apps
-        handleIncomingSharedText(intent)
+        handleIncomingIntent(intent)
         observeViewModel()
         setupBackPressed()
     }
@@ -75,7 +88,6 @@ class MainActivity : BaseActivity() {
                     }
                     backPressedTime = System.currentTimeMillis()
                 } else {
-                    // If not on home, let the navController handle back (go to home)
                     navController.popBackStack()
                 }
             }
@@ -85,19 +97,56 @@ class MainActivity : BaseActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIncomingSharedText(intent)
+        handleIncomingIntent(intent)
     }
 
-    private fun handleIncomingSharedText(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND && "text/plain" == intent.type) {
-            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-            if (!sharedText.isNullOrEmpty()) {
-                Log.d(TAG, "Incoming shared text: $sharedText")
-                sharedViewModel.updateText(sharedText)
-                // Also update the system clipboard so it's ready to be sent
-                clipboardMonitor.setClipboardProgrammatically(sharedText)
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+
+        val type = intent.type ?: return
+        
+        lifecycleScope.launch {
+            if (type == "text/plain") {
+                intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
+                    saveToQueue(text, isFile = false)
+                }
+            } else {
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+                
+                uri?.let {
+                    saveToQueue(it.toString(), isFile = true, fileName = getFileName(it))
+                }
             }
         }
+    }
+
+    private suspend fun saveToQueue(content: String, isFile: Boolean, fileName: String? = null) {
+        historyRepository.insertHistory(
+            HistoryEntity(
+                content = content,
+                isReceived = false,
+                isFile = isFile,
+                fileName = fileName,
+                isQueued = true
+            )
+        )
+        showToast("Added to Queue")
+    }
+
+    private fun getFileName(uri: Uri): String {
+        var name = "file_${System.currentTimeMillis()}"
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index != -1) name = cursor.getString(index)
+            }
+        }
+        return name
     }
 
     private fun observeViewModel() {

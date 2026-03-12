@@ -75,6 +75,7 @@ dependencies {
     implementation(libs.firebase.crashlytics)               // Crashlytics
     implementation(libs.firebase.database)                  // Realtime Database
     implementation(libs.firebase.auth)                      // Firebase Auth
+    implementation(libs.firebase.storage)                   // Firebase Storage
 
     implementation(libs.retrofit)                           // Retrofit client
     implementation(libs.converter.gson)                     // Gson converter
@@ -91,6 +92,11 @@ dependencies {
     // Dependency Injection - Hilt
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
+
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    kapt(libs.androidx.room.compiler)
 
     // Testing
     testImplementation(libs.junit)

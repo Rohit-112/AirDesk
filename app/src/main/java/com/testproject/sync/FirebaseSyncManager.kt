@@ -2,11 +2,13 @@ package com.testproject.sync
 
 import android.content.Context
 import androidx.lifecycle.LifecycleOwner
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ValueEventListener
 import com.testproject.data.FirebaseRepository
+import com.testproject.utils.AppsConst.FB_GUEST_CLIPBOARD
+import com.testproject.utils.AppsConst.FB_GUEST_ONLINE
+import com.testproject.utils.AppsConst.FB_HOST_CLIPBOARD
+import com.testproject.utils.AppsConst.FB_HOST_ONLINE
+import com.testproject.utils.AppsConst.FILE_PROTOCOL_PREFIX
+import com.testproject.utils.EncryptionHelper
 import com.testproject.viewmodel.SharedViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,50 +20,40 @@ class FirebaseSyncManager(
     private val context: Context,
     private val viewModel: SharedViewModel,
     private val clipboardMonitor: ClipboardMonitor,
-    private val repo: FirebaseRepository = FirebaseRepository()
+    private val encryptionHelper: EncryptionHelper,
+    private val repo: FirebaseRepository
 ) {
-
-    private val job = SupervisorJob()
-    private val scope = CoroutineScope(Dispatchers.IO + job)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var currentSession: String? = null
-    private var currentIsHost: Boolean = true
-    private var remoteClipboardListener: ValueEventListener? = null
-    private var peerPresenceListener: ValueEventListener? = null
+    private var isHost: Boolean = true
+    
+    private var clipboardListener: com.google.firebase.database.ValueEventListener? = null
+    private var presenceListener: com.google.firebase.database.ValueEventListener? = null
+
+    private var lastSentText: String? = null
+    private var lastReceivedText: String? = null
 
     fun bind(lifecycleOwner: LifecycleOwner) {
         viewModel.sessionCode.observe(lifecycleOwner) { code ->
-            scope.launch { handleSessionChange(code, viewModel.isHost.value ?: true) }
+            scope.launch { updateSession(code, viewModel.isHost.value ?: true) }
         }
 
         viewModel.isHost.observe(lifecycleOwner) { host ->
-            scope.launch { handleSessionChange(viewModel.sessionCode.value, host ?: true) }
+            scope.launch { updateSession(viewModel.sessionCode.value, host ?: true) }
         }
 
         viewModel.lastSentText.observe(lifecycleOwner) { text ->
-            if (!text.isNullOrEmpty()) {
-                scope.launch { sendLocalToFirebase(text) }
-            }
+            handleLocalUpdate(text)
         }
     }
 
-    fun shutdown() {
-        removeRemoteListeners()
-        val code = currentSession
-        if (currentIsHost && !code.isNullOrEmpty()) {
-            repo.deleteSession(code)
-        }
-        job.cancelChildren()
-        job.cancel()
-        clipboardMonitor.stop()
-    }
-
-    private fun handleSessionChange(code: String?, isHost: Boolean) {
-        if (code == currentSession && isHost == currentIsHost) return
+    private fun updateSession(code: String?, host: Boolean) {
+        if (code == currentSession && host == isHost) return
         
-        removeRemoteListeners()
+        cleanup()
         currentSession = code
-        currentIsHost = isHost
+        isHost = host
 
         if (code.isNullOrEmpty()) {
             viewModel.setConnected(false)
@@ -70,69 +62,66 @@ class FirebaseSyncManager(
         }
 
         viewModel.setConnected(true)
-
-        // Mapping based on FirebaseRepository shorthands
-        // ho -> hostOnline, go -> guestOnline
-        attachPeerPresenceListener(code, isHost)
         
-        // hc -> hostClipboard, gc -> guestClipboard
-        val remoteNode = if (isHost) "gc" else "hc"
-        attachRemoteClipboardListener(code, remoteNode)
+        val remoteNode = if (host) FB_GUEST_CLIPBOARD else FB_HOST_CLIPBOARD
+        val presenceNode = if (host) FB_GUEST_ONLINE else FB_HOST_ONLINE
+
+        clipboardListener = repo.observeClipboard(code, remoteNode) { encrypted ->
+            handleRemoteUpdate(encrypted, code, remoteNode)
+        }
+
+        presenceListener = repo.observePeerPresence(code, presenceNode) { online ->
+            viewModel.setPeerConnected(online)
+        }
     }
 
-    private fun sendLocalToFirebase(text: String) {
+    private fun handleLocalUpdate(text: String?) {
+        val cleanText = text?.trim() ?: return
+        if (cleanText == lastReceivedText?.trim()) {
+            viewModel.updateText(null)
+            return
+        }
+
+        lastSentText = cleanText
+        currentSession?.let { code ->
+            val node = if (isHost) FB_HOST_CLIPBOARD else FB_GUEST_CLIPBOARD
+            repo.writeClipboard(code, node, encryptionHelper.encrypt(cleanText))
+        }
+        viewModel.updateText(null)
+    }
+
+    private fun handleRemoteUpdate(encrypted: String?, code: String, node: String) {
+        if (encrypted.isNullOrEmpty()) return
+        
+        val decrypted = encryptionHelper.decrypt(encrypted).trim()
+        if (decrypted.isEmpty() || decrypted == lastSentText) return
+
+        lastReceivedText = decrypted
+        viewModel.setReceivedContent(decrypted)
+
+        if (!decrypted.startsWith(FILE_PROTOCOL_PREFIX)) {
+            clipboardMonitor.setClipboardProgrammatically(decrypted)
+        }
+
+        repo.writeClipboard(code, node, "")
+    }
+
+    fun shutdown() {
+        cleanup()
+        if (isHost) currentSession?.let { repo.deleteSession(it) }
+        scope.coroutineContext.cancelChildren()
+        clipboardMonitor.stop()
+    }
+
+    private fun cleanup() {
         val code = currentSession ?: return
-        val node = if (currentIsHost) "hc" else "gc"
-        repo.writeClipboard(code, node, text)
-    }
+        val remoteNode = if (isHost) FB_GUEST_CLIPBOARD else FB_HOST_CLIPBOARD
+        val presenceNode = if (isHost) FB_GUEST_ONLINE else FB_HOST_ONLINE
 
-    private fun attachRemoteClipboardListener(code: String, remoteNode: String) {
-        val ref = FirebaseDatabase.getInstance().getReference("s").child(code).child(remoteNode)
-        remoteClipboardListener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val text = snapshot.getValue(String::class.java)
-                if (!text.isNullOrEmpty()) {
-                    clipboardMonitor.setClipboardProgrammatically(text)
-                    // Zero-trace: clear the text from Firebase immediately after receipt
-                    repo.writeClipboard(code, remoteNode, "") 
-                }
-            }
-            override fun onCancelled(error: DatabaseError) {}
-        }
-        ref.addValueEventListener(remoteClipboardListener!!)
-    }
-
-    private fun attachPeerPresenceListener(code: String, isHost: Boolean) {
-        val peerNode = if (isHost) "go" else "ho"
-        val ref = FirebaseDatabase.getInstance().getReference("s").child(code).child(peerNode)
+        clipboardListener?.let { repo.removeListener(code, remoteNode, it) }
+        presenceListener?.let { repo.removeListener(code, presenceNode, it) }
         
-        peerPresenceListener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val isOnline = snapshot.getValue(Boolean::class.java) ?: false
-                viewModel.setPeerConnected(isOnline)
-            }
-            override fun onCancelled(error: DatabaseError) {
-                viewModel.setPeerConnected(false)
-            }
-        }
-        ref.addValueEventListener(peerPresenceListener!!)
-    }
-
-    private fun removeRemoteListeners() {
-        val code = currentSession ?: return
-        val sessionRef = FirebaseDatabase.getInstance().getReference("s").child(code)
-        
-        remoteClipboardListener?.let {
-            val remoteNode = if (currentIsHost) "gc" else "hc"
-            sessionRef.child(remoteNode).removeEventListener(it)
-        }
-        
-        peerPresenceListener?.let {
-            val peerNode = if (currentIsHost) "go" else "ho"
-            sessionRef.child(peerNode).removeEventListener(it)
-        }
-        
-        remoteClipboardListener = null
-        peerPresenceListener = null
+        clipboardListener = null
+        presenceListener = null
     }
 }

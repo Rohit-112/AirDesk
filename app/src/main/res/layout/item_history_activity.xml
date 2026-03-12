@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingHorizontal="16dp">
+
+    <!-- Timeline Line -->
+    <View
+        android:id="@+id/timelineLine"
+        android:layout_width="2dp"
+        android:layout_height="0dp"
+        android:background="@color/textTertiary"
+        android:layout_marginStart="8dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Timeline Dot -->
+    <View
+        android:id="@+id/timelineDot"
+        android:layout_width="10dp"
+        android:layout_height="10dp"
+        android:background="@drawable/ic_launcher_background"
+        app:layout_constraintBottom_toBottomOf="@id/tvStatus"
+        app:layout_constraintEnd_toEndOf="@id/timelineLine"
+        app:layout_constraintStart_toStartOf="@id/timelineLine"
+        app:layout_constraintTop_toTopOf="@id/tvStatus" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="12dp"
+        android:textColor="@color/textPrimary"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toStartOf="@id/ivAction"
+        app:layout_constraintStart_toEndOf="@id/timelineDot"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="Shared" />
+
+    <TextView
+        android:id="@+id/tvContent"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:textColor="@color/accent"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toStartOf="@id/ivAction"
+        app:layout_constraintStart_toStartOf="@id/tvStatus"
+        app:layout_constraintTop_toBottomOf="@id/tvStatus"
+        tools:text="Presentation_V2.pptx" />
+
+    <TextView
+        android:id="@+id/tvTime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="12dp"
+        android:textColor="@color/textSecondary"
+        android:textSize="12sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="@id/tvStatus"
+        app:layout_constraintTop_toBottomOf="@id/tvContent"
+        tools:text="10:12 AM - 12 mins ago" />
+
+    <ImageView
+        android:id="@+id/ivAction"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:padding="4dp"
+        android:src="@drawable/activity_icon"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:tint="@color/accent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
