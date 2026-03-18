@@ -26,8 +26,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
-import com.google.zxing.integration.android.IntentIntegrator
 import com.journeyapps.barcodescanner.BarcodeEncoder
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.testproject.R
 import com.testproject.activity.CustomScannerActivity
 import com.testproject.adapter.HistoryAdapter
@@ -66,10 +67,9 @@ class HomeFragment : BaseFragment() {
         uri?.let { handleFileSelection(it) }
     }
 
-    private val qrScannerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val intentResult = IntentIntegrator.parseActivityResult(result.resultCode, result.data)
-        if (intentResult != null && intentResult.contents != null) {
-            val code = intentResult.contents
+    private val qrScannerLauncher = registerForActivityResult(ScanContract()) { result ->
+        if (result.contents != null) {
+            val code = result.contents
             if (code.length == 6 && code.all { it.isDigit() }) {
                 binding.layoutDisconnected.etSessionCode.setText(code)
                 joinSession(code)
@@ -123,10 +123,45 @@ class HomeFragment : BaseFragment() {
     private fun observeLocalHistory() {
         viewModel.sharedHistory.observe(viewLifecycleOwner) { items ->
             sharedAdapter.updateItems(items)
+            
+            if (items.isEmpty()) {
+                binding.layoutHistory.rvSharedItems.visibility = View.GONE
+                binding.layoutHistory.tvNoShared.visibility = View.VISIBLE
+            } else {
+                binding.layoutHistory.rvSharedItems.visibility = View.VISIBLE
+                binding.layoutHistory.tvNoShared.visibility = View.GONE
+                
+                // Dynamic Height: max 3 items
+                val params = binding.layoutHistory.rvSharedItems.layoutParams
+                if (items.size > 3) {
+                    params.height = (3 * resources.displayMetrics.density * 80).toInt()
+                } else {
+                    params.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                }
+                binding.layoutHistory.rvSharedItems.layoutParams = params
+            }
         }
+        
         viewModel.receivedHistory.observe(viewLifecycleOwner) { items ->
             receivedAdapter.updateItems(items)
+            
+            if (items.isEmpty()) {
+                binding.layoutHistory.rvReceivedItems.visibility = View.GONE
+                binding.layoutHistory.tvNoReceived.visibility = View.VISIBLE
+            } else {
+                binding.layoutHistory.rvReceivedItems.visibility = View.VISIBLE
+                binding.layoutHistory.tvNoReceived.visibility = View.GONE
+                
+                val params = binding.layoutHistory.rvReceivedItems.layoutParams
+                if (items.size > 3) {
+                    params.height = (3 * resources.displayMetrics.density * 80).toInt()
+                } else {
+                    params.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                }
+                binding.layoutHistory.rvReceivedItems.layoutParams = params
+            }
         }
+        
         viewModel.queuedHistory.observe(viewLifecycleOwner) { items ->
             queueAdapter.updateItems(items)
             binding.layoutQueue.root.visibility = if (items.isNotEmpty()) View.VISIBLE else View.GONE
@@ -199,14 +234,16 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun startQrScanner() {
-        val integrator = IntentIntegrator.forSupportFragment(this)
-        integrator.captureActivity = CustomScannerActivity::class.java
-        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-        integrator.setPrompt("Align QR code within the frame")
-        integrator.setBeepEnabled(false)
-        integrator.setBarcodeImageEnabled(false)
-        integrator.setOrientationLocked(true)
-        qrScannerLauncher.launch(integrator.createScanIntent())
+        val options = ScanOptions().apply {
+            setCaptureActivity(CustomScannerActivity::class.java)
+            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            setPrompt("Align QR code within the frame")
+            setBeepEnabled(false)
+            setBarcodeImageEnabled(false)
+            setOrientationLocked(false) // Allow rotation for scanner
+            setCameraId(0) // Use back camera
+        }
+        qrScannerLauncher.launch(options)
     }
 
     private fun showQrCodeDialog() {

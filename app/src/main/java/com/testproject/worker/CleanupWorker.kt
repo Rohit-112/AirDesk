@@ -1,7 +1,6 @@
 package com.testproject.worker
 
 import android.content.Context
-import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.google.firebase.database.FirebaseDatabase
@@ -53,7 +52,6 @@ class CleanupWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             }
             Result.success()
         } catch (e: Exception) {
-            Log.e("CleanupWorker", "Background cloud cleanup failed", e)
             Result.retry()
         }
     }
@@ -82,7 +80,6 @@ class CleanupWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     fileRef.delete().await() 
                 }
             } catch (e: Exception) {
-                Log.e("CleanupWorker", "Failed to check cloud file ${fileRef.name}", e)
             }
         }
     }
