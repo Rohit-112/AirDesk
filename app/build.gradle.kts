@@ -104,4 +104,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 
     implementation("androidx.work:work-runtime-ktx:2.8.1") // worker manager
+    
+    // QR Scanning
+    implementation(libs.zxing.android.embedded)
+    implementation(libs.zxing.core)
 }

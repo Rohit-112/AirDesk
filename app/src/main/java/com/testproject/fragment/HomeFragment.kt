@@ -2,6 +2,8 @@ package com.testproject.fragment
 
 import android.annotation.SuppressLint
 import android.content.ContentValues
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,13 +14,22 @@ import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.integration.android.IntentIntegrator
+import com.journeyapps.barcodescanner.BarcodeEncoder
 import com.testproject.R
+import com.testproject.activity.CustomScannerActivity
 import com.testproject.adapter.HistoryAdapter
 import com.testproject.adapter.QueueAdapter
 import com.testproject.base.BaseFragment
@@ -37,7 +48,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import androidx.core.net.toUri
 
 @AndroidEntryPoint
 class HomeFragment : BaseFragment() {
@@ -54,6 +64,19 @@ class HomeFragment : BaseFragment() {
 
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { handleFileSelection(it) }
+    }
+
+    private val qrScannerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val intentResult = IntentIntegrator.parseActivityResult(result.resultCode, result.data)
+        if (intentResult != null && intentResult.contents != null) {
+            val code = intentResult.contents
+            if (code.length == 6 && code.all { it.isDigit() }) {
+                binding.layoutDisconnected.etSessionCode.setText(code)
+                joinSession(code)
+            } else {
+                requireContext().showToast("Invalid QR Code")
+            }
+        }
     }
 
     private val deviceId: String by lazy {
@@ -81,17 +104,17 @@ class HomeFragment : BaseFragment() {
         receivedAdapter = HistoryAdapter()
         queueAdapter = QueueAdapter { item -> handleQueueItemClick(item) }
 
-        binding.rvSharedItems.apply {
+        binding.layoutHistory.rvSharedItems.apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = sharedAdapter
         }
 
-        binding.rvReceivedItems.apply {
+        binding.layoutHistory.rvReceivedItems.apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = receivedAdapter
         }
 
-        binding.rvQueueItems.apply {
+        binding.layoutQueue.rvQueueItems.apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = queueAdapter
         }
@@ -106,7 +129,7 @@ class HomeFragment : BaseFragment() {
         }
         viewModel.queuedHistory.observe(viewLifecycleOwner) { items ->
             queueAdapter.updateItems(items)
-            binding.queueCard.visibility = if (items.isNotEmpty()) View.VISIBLE else View.GONE
+            binding.layoutQueue.root.visibility = if (items.isNotEmpty()) View.VISIBLE else View.GONE
         }
     }
 
@@ -160,16 +183,58 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun setupClickListeners() {
-        binding.btnConnect.setOnClickListener { if (checkNetwork()) joinExistingSession() }
-        binding.btnRefreshCode.setOnClickListener {
+        binding.layoutDisconnected.btnConnect.setOnClickListener { if (checkNetwork()) joinExistingSession() }
+        binding.layoutDisconnected.btnRefreshCode.setOnClickListener {
             if (checkNetwork()) {
                 sharedViewModel.sessionCode.value?.let { viewModel.deleteSession(it) }
                 generateNewSession()
             }
         }
-        binding.btnUnlink.setOnClickListener { unlinkSession() }
-        binding.btnShareText.setOnClickListener { shareCustomText() }
-        binding.btnSelectFiles.setOnClickListener { if (checkNetwork()) filePickerLauncher.launch("*/*") }
+        binding.layoutDisconnected.btnScanQr.setOnClickListener { startQrScanner() }
+        binding.layoutDisconnected.btnShowQr.setOnClickListener { showQrCodeDialog() }
+        
+        binding.layoutStatus.btnUnlink.setOnClickListener { unlinkSession() }
+        binding.layoutTransfer.btnShareText.setOnClickListener { shareCustomText() }
+        binding.layoutTransfer.btnSelectFiles.setOnClickListener { if (checkNetwork()) filePickerLauncher.launch("*/*") }
+    }
+
+    private fun startQrScanner() {
+        val integrator = IntentIntegrator.forSupportFragment(this)
+        integrator.captureActivity = CustomScannerActivity::class.java
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+        integrator.setPrompt("Align QR code within the frame")
+        integrator.setBeepEnabled(false)
+        integrator.setBarcodeImageEnabled(false)
+        integrator.setOrientationLocked(true)
+        qrScannerLauncher.launch(integrator.createScanIntent())
+    }
+
+    private fun showQrCodeDialog() {
+        val code = sharedViewModel.sessionCode.value ?: return
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_qr_code, null)
+        val ivQr = dialogView.findViewById<ImageView>(R.id.ivQrCode)
+        val tvCode = dialogView.findViewById<TextView>(R.id.tvCode)
+        val btnClose = dialogView.findViewById<View>(R.id.btnClose)
+
+        tvCode.text = code.chunked(3).joinToString(" ")
+        
+        try {
+            val writer = MultiFormatWriter()
+            val bitMatrix = writer.encode(code, BarcodeFormat.QR_CODE, 512, 512)
+            val encoder = BarcodeEncoder()
+            val bitmap = encoder.createBitmap(bitMatrix)
+            ivQr.setImageBitmap(bitmap)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setView(dialogView)
+            .create()
+        
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        btnClose.setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun handleFileSelection(uri: Uri) {
@@ -197,11 +262,11 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun shareCustomText() {
-        val text = binding.etShareText.text.toString().trim()
+        val text = binding.layoutTransfer.etShareText.text.toString().trim()
         if (text.isNotEmpty()) {
             saveToLocalHistory(content = text, isReceived = false, isFile = false)
             sharedViewModel.updateText(text)
-            binding.etShareText.setText("")
+            binding.layoutTransfer.etShareText.setText("")
             requireContext().showToast("Text shared!")
         } else {
             requireContext().showToast("Please enter some text")
@@ -232,8 +297,8 @@ class HomeFragment : BaseFragment() {
         sharedViewModel.connected.observe(viewLifecycleOwner) { updateStatusUI() }
         sharedViewModel.peerConnected.observe(viewLifecycleOwner) { updateStatusUI() }
         sharedViewModel.sessionCode.observe(viewLifecycleOwner) { code ->
-            binding.tvYourCode.text = code ?: "------"
-            binding.tvConnectedTo.text = code?.let { getString(R.string.connected_to, it) } ?: getString(R.string.status_not_connected)
+            binding.layoutDisconnected.tvYourCode.text = code ?: "------"
+            binding.layoutStatus.tvConnectedTo.text = code?.let { getString(R.string.connected_to, it) } ?: getString(R.string.status_not_connected)
         }
         sharedViewModel.receivedContent.observe(viewLifecycleOwner) { content ->
             content?.let {
@@ -287,17 +352,18 @@ class HomeFragment : BaseFragment() {
         val isPeerConnected = sharedViewModel.peerConnected.value ?: false
         val uiState = getUIState(isConnected, isPeerConnected)
 
-        binding.statusCard.setCardBackgroundColor(ContextCompat.getColor(requireContext(), uiState.bgColor))
-        binding.ivStatusIcon.setImageResource(uiState.iconRes)
-        binding.ivStatusIcon.setColorFilter(ContextCompat.getColor(requireContext(), uiState.textColor))
-        binding.tvStatusText.apply {
+        binding.layoutStatus.statusCard.setCardBackgroundColor(ContextCompat.getColor(requireContext(), uiState.bgColor))
+        binding.layoutStatus.ivStatusIcon.setImageResource(uiState.iconRes)
+        binding.layoutStatus.ivStatusIcon.setColorFilter(ContextCompat.getColor(requireContext(), uiState.textColor))
+        binding.layoutStatus.tvStatusText.apply {
             text = getString(uiState.textRes)
             setTextColor(ContextCompat.getColor(requireContext(), uiState.textColor))
         }
-        binding.tvConnectedTo.setTextColor(ContextCompat.getColor(requireContext(), uiState.textColor))
-        binding.layoutDisconnected.visibility = if (uiState.showDisconnectedLayout) View.VISIBLE else View.GONE
-        binding.transferCard.visibility = if (uiState.showTransferCard) View.VISIBLE else View.GONE
-        binding.btnUnlink.visibility = if (uiState.showUnlinkButton) View.VISIBLE else View.GONE
+        binding.layoutStatus.tvConnectedTo.setTextColor(ContextCompat.getColor(requireContext(), uiState.textColor))
+        
+        binding.layoutDisconnected.root.visibility = if (uiState.showDisconnectedLayout) View.VISIBLE else View.GONE
+        binding.layoutTransfer.root.visibility = if (uiState.showTransferCard) View.VISIBLE else View.GONE
+        binding.layoutStatus.btnUnlink.visibility = if (uiState.showUnlinkButton) View.VISIBLE else View.GONE
     }
 
     private fun getUIState(isConnected: Boolean, isPeerConnected: Boolean) = when {
@@ -315,8 +381,12 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun joinExistingSession() {
-        val code = binding.etSessionCode.text.toString().trim()
-        if (code.length != 6) { binding.etSessionCode.error = getString(R.string.invalid_code); return }
+        val code = binding.layoutDisconnected.etSessionCode.text.toString().trim()
+        if (code.length != 6) { binding.layoutDisconnected.etSessionCode.error = getString(R.string.invalid_code); return }
+        joinSession(code)
+    }
+
+    private fun joinSession(code: String) {
         viewModel.joinSession(code, deviceId) { success, error ->
             if (success) {
                 lifecycleScope.launch {
@@ -324,7 +394,7 @@ class HomeFragment : BaseFragment() {
                     sharedViewModel.setSession(code, false)
                     sharedViewModel.setConnected(true)
                 }
-                binding.etSessionCode.setText("")
+                binding.layoutDisconnected.etSessionCode.setText("")
             } else showErrorDialog(error ?: "Unknown error")
         }
     }

@@ -46,6 +46,7 @@
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
     <color name="transparent">#00000000</color>
+    <color name="black_overlay">#66000000</color>
 
     <!-- Legacy/Dialog Colors -->
     <color name="download_bhajan">@color/accent</color>
