@@ -16,7 +16,7 @@
         android:layout_height="48dp"
         android:layout_margin="16dp"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:src="@drawable/activity_icon"
+        android:src="@drawable/cancel_btn"
         android:rotation="180"
         app:tint="@color/white" />
 
