@@ -3,7 +3,7 @@ package com.testproject.adapter
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.testproject.data.HistoryItem
+import com.testproject.domain.model.HistoryItem
 import com.testproject.databinding.ItemQueueBinding
 import com.testproject.utils.FileUtils
 

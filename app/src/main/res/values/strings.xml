@@ -36,4 +36,9 @@
     <!-- Original -->
     <string name="home">Home</string>
     <string name="settings">Settings</string>
+    <string name="dash_dash">------</string>
+    <string name="_0_0_0_0_0_0">0 0 0 0 0 0</string>
+    <string name="connect_to_peer">Connect to Peer</string>
+    <string name="queue">QUEUE</string>
+    <string name="enter_text_to_share">Enter text to share</string>
 </resources>

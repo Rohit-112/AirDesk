@@ -13,9 +13,9 @@ import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.testproject.R
 import com.testproject.base.BaseActivity
-import com.testproject.data.FirebaseRepository
-import com.testproject.data.local.HistoryEntity
-import com.testproject.data.local.HistoryRepository
+import com.testproject.domain.model.HistoryItem
+import com.testproject.domain.repository.ISessionRepository
+import com.testproject.domain.usecase.InsertHistoryUseCase
 import com.testproject.databinding.ActivityMainBinding
 import com.testproject.sync.ClipboardMonitor
 import com.testproject.sync.FirebaseSyncManager
@@ -36,7 +36,8 @@ class MainActivity : BaseActivity() {
     private lateinit var clipboardMonitor: ClipboardMonitor
     private lateinit var firebaseSyncManager: FirebaseSyncManager
     
-    @Inject lateinit var historyRepository: HistoryRepository
+    @Inject lateinit var insertHistoryUseCase: InsertHistoryUseCase
+    @Inject lateinit var sessionRepository: ISessionRepository
 
     private var backPressedTime: Long = 0
     private val TAG = "MainActivityLogs"
@@ -63,7 +64,7 @@ class MainActivity : BaseActivity() {
             clipboardMonitor = clipboardMonitor,
             viewModel = sharedViewModel,
             encryptionHelper = encryptionHelper,
-            repo = FirebaseRepository()
+            repo = sessionRepository
         )
         firebaseSyncManager.bind(this)
 
@@ -126,8 +127,8 @@ class MainActivity : BaseActivity() {
     }
 
     private suspend fun saveToQueue(content: String, isFile: Boolean, fileName: String? = null) {
-        historyRepository.insertHistory(
-            HistoryEntity(
+        insertHistoryUseCase(
+            HistoryItem(
                 content = content,
                 isReceived = false,
                 isFile = isFile,

@@ -15,24 +15,21 @@ import android.view.ViewGroup
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.activityViewModels
+import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.testproject.R
 import com.testproject.adapter.HistoryAdapter
 import com.testproject.adapter.QueueAdapter
 import com.testproject.base.BaseFragment
-import com.testproject.data.FirebaseRepository
-import com.testproject.data.HistoryItem
-import com.testproject.data.StorageRepository
-import com.testproject.data.local.HistoryEntity
-import com.testproject.data.local.HistoryRepository
 import com.testproject.databinding.FragmentHomeBinding
+import com.testproject.domain.model.HistoryItem
 import com.testproject.helper.CustomBottomSheetDialog
 import com.testproject.network.NetworkUtils
-import com.testproject.utils.AppPreference
 import com.testproject.utils.AppsConst.FILE_PROTOCOL_PREFIX
 import com.testproject.utils.AppsConst.FILE_PROTOCOL_SEPARATOR
 import com.testproject.utils.showToast
+import com.testproject.viewmodel.HomeViewModel
 import com.testproject.viewmodel.SharedViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import javax.inject.Inject
+import androidx.core.net.toUri
 
 @AndroidEntryPoint
 class HomeFragment : BaseFragment() {
@@ -49,11 +46,7 @@ class HomeFragment : BaseFragment() {
     private val binding get() = _binding!!
     
     private val sharedViewModel: SharedViewModel by activityViewModels()
-    
-    @Inject lateinit var repo: FirebaseRepository
-    @Inject lateinit var storageRepo: StorageRepository
-    @Inject lateinit var appPreference: AppPreference
-    @Inject lateinit var historyRepository: HistoryRepository
+    private val viewModel: HomeViewModel by viewModels()
 
     private lateinit var sharedAdapter: HistoryAdapter
     private lateinit var receivedAdapter: HistoryAdapter
@@ -105,22 +98,15 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun observeLocalHistory() {
-        lifecycleScope.launch {
-            historyRepository.getRecentHistory(isReceived = false).collect { entities ->
-                sharedAdapter.updateItems(entities.map { it.toHistoryItem() })
-            }
+        viewModel.sharedHistory.observe(viewLifecycleOwner) { items ->
+            sharedAdapter.updateItems(items)
         }
-        lifecycleScope.launch {
-            historyRepository.getRecentHistory(isReceived = true).collect { entities ->
-                receivedAdapter.updateItems(entities.map { it.toHistoryItem() })
-            }
+        viewModel.receivedHistory.observe(viewLifecycleOwner) { items ->
+            receivedAdapter.updateItems(items)
         }
-        lifecycleScope.launch {
-            historyRepository.getQueuedItems().collect { entities ->
-                val items = entities.map { it.toHistoryItem() }
-                queueAdapter.updateItems(items)
-                binding.queueCard.visibility = if (items.isNotEmpty()) View.VISIBLE else View.GONE
-            }
+        viewModel.queuedHistory.observe(viewLifecycleOwner) { items ->
+            queueAdapter.updateItems(items)
+            binding.queueCard.visibility = if (items.isNotEmpty()) View.VISIBLE else View.GONE
         }
     }
 
@@ -146,28 +132,28 @@ class HomeFragment : BaseFragment() {
     private fun shareQueueItem(item: HistoryItem) {
         lifecycleScope.launch {
             if (item.isFile) {
-                val uri = Uri.parse(item.content)
-                if (!storageRepo.isFileSizeValid(requireContext(), uri)) {
+                val uri = item.content.toUri()
+                if (!viewModel.isFileSizeValid(requireContext(), uri)) {
                     showFileSizeError()
                     return@launch
                 }
                 
                 val sessionCode = sharedViewModel.sessionCode.value ?: return@launch
                 showLoading()
-                val downloadUrl = storageRepo.uploadFile(sessionCode, uri, item.fileName ?: "file") { }
+                val downloadUrl = viewModel.uploadFile(sessionCode, uri, item.fileName ?: "file")
                 hideLoading()
                 
                 if (downloadUrl != null) {
                     val protocolString = "$FILE_PROTOCOL_PREFIX${item.fileName}$FILE_PROTOCOL_SEPARATOR$downloadUrl"
                     sharedViewModel.updateText(protocolString)
-                    historyRepository.markAsNotQueued(item.id)
+                    viewModel.markAsNotQueued(item.id)
                     requireContext().showToast("File shared successfully!")
                 } else {
                     requireContext().showToast("Failed to upload file")
                 }
             } else {
                 sharedViewModel.updateText(item.content)
-                historyRepository.markAsNotQueued(item.id)
+                viewModel.markAsNotQueued(item.id)
                 requireContext().showToast("Text shared!")
             }
         }
@@ -177,7 +163,7 @@ class HomeFragment : BaseFragment() {
         binding.btnConnect.setOnClickListener { if (checkNetwork()) joinExistingSession() }
         binding.btnRefreshCode.setOnClickListener {
             if (checkNetwork()) {
-                sharedViewModel.sessionCode.value?.let { repo.deleteSession(it) }
+                sharedViewModel.sessionCode.value?.let { viewModel.deleteSession(it) }
                 generateNewSession()
             }
         }
@@ -187,7 +173,7 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun handleFileSelection(uri: Uri) {
-        if (!storageRepo.isFileSizeValid(requireContext(), uri)) {
+        if (!viewModel.isFileSizeValid(requireContext(), uri)) {
             showFileSizeError()
             return
         }
@@ -197,7 +183,7 @@ class HomeFragment : BaseFragment() {
 
         showLoading()
         lifecycleScope.launch {
-            val downloadUrl = storageRepo.uploadFile(sessionCode, uri, fileName) { /* progress */ }
+            val downloadUrl = viewModel.uploadFile(sessionCode, uri, fileName)
             hideLoading()
             if (downloadUrl != null) {
                 val protocolString = "$FILE_PROTOCOL_PREFIX$fileName$FILE_PROTOCOL_SEPARATOR$downloadUrl"
@@ -237,11 +223,9 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun saveToLocalHistory(content: String, isReceived: Boolean, isFile: Boolean, fileName: String? = null) {
-        lifecycleScope.launch {
-            historyRepository.insertHistory(
-                HistoryEntity(content = content, isReceived = isReceived, isFile = isFile, fileName = fileName)
-            )
-        }
+        viewModel.saveToHistory(
+            HistoryItem(content = content, isReceived = isReceived, isFile = isFile, fileName = fileName)
+        )
     }
 
     private fun observeViewModel() {
@@ -262,10 +246,10 @@ class HomeFragment : BaseFragment() {
     private fun saveFileToGallery(fileName: String, downloadUrl: String) {
         showLoading()
         lifecycleScope.launch {
-            val bytes = storageRepo.downloadFileBytes(downloadUrl)
+            val bytes = viewModel.downloadFileBytes(downloadUrl)
             if (bytes != null) {
                 if (saveFileToPublicDirectory(fileName, bytes)) {
-                    storageRepo.deleteFileByUrl(downloadUrl)
+                    viewModel.deleteFileByUrl(downloadUrl)
                     requireContext().showToast("File saved to Downloads")
                 } else {
                     requireContext().showToast("Failed to save file locally")
@@ -324,20 +308,19 @@ class HomeFragment : BaseFragment() {
 
     private fun unlinkSession() {
         sharedViewModel.sessionCode.value?.let {
-            repo.deleteSession(it)
+            viewModel.deleteSession(it)
             sharedViewModel.clearSession()
-            lifecycleScope.launch { appPreference.removeSession() }
+            lifecycleScope.launch { viewModel.clearPersistedSession() }
         }
     }
 
     private fun joinExistingSession() {
         val code = binding.etSessionCode.text.toString().trim()
         if (code.length != 6) { binding.etSessionCode.error = getString(R.string.invalid_code); return }
-        repo.joinSession(code, deviceId) { success, error ->
+        viewModel.joinSession(code, deviceId) { success, error ->
             if (success) {
                 lifecycleScope.launch {
-                    appPreference.saveSessionCode(code)
-                    appPreference.setIsHost(false)
+                    viewModel.saveSession(code, false)
                     sharedViewModel.setSession(code, false)
                     sharedViewModel.setConnected(true)
                 }
@@ -347,17 +330,18 @@ class HomeFragment : BaseFragment() {
     }
 
     private fun loadPersistedSession() = lifecycleScope.launch {
-        appPreference.getSessionCode()?.let {
-            sharedViewModel.setSession(it, appPreference.isHost())
+        viewModel.getSessionCode()?.let {
+            sharedViewModel.setSession(it, viewModel.isHost())
             sharedViewModel.setConnected(true)
         } ?: generateNewSession()
     }
 
-    private fun generateNewSession() = repo.createSession(deviceId) { code ->
+    private fun generateNewSession() = viewModel.createSession(deviceId) { code ->
         code?.let {
             lifecycleScope.launch {
-                appPreference.saveSessionCode(it); appPreference.setIsHost(true)
-                sharedViewModel.setSession(it, true); sharedViewModel.setConnected(true)
+                viewModel.saveSession(it, true)
+                sharedViewModel.setSession(it, true)
+                sharedViewModel.setConnected(true)
             }
         } ?: requireContext().showToast("Failed to generate code")
     }
@@ -401,5 +385,4 @@ class HomeFragment : BaseFragment() {
     override fun onDestroyView() { super.onDestroyView(); _binding = null }
 
     private data class HomeUIState(val bgColor: Int, val textColor: Int, val iconRes: Int, val textRes: Int, val showDisconnectedLayout: Boolean, val showTransferCard: Boolean, val showUnlinkButton: Boolean)
-    private fun HistoryEntity.toHistoryItem() = HistoryItem(id = id, content = content, timestamp = timestamp, isFile = isFile, fileName = fileName, isReceived = isReceived, isQueued = isQueued)
 }

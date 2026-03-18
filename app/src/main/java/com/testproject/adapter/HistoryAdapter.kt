@@ -6,7 +6,7 @@ import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.testproject.R
-import com.testproject.data.HistoryItem
+import com.testproject.domain.model.HistoryItem
 import com.testproject.databinding.ItemHistoryActivityBinding
 import com.testproject.utils.FileUtils
 import java.text.SimpleDateFormat

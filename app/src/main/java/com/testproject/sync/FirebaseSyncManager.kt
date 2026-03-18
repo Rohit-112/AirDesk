@@ -2,7 +2,7 @@ package com.testproject.sync
 
 import android.content.Context
 import androidx.lifecycle.LifecycleOwner
-import com.testproject.data.FirebaseRepository
+import com.testproject.domain.repository.ISessionRepository
 import com.testproject.utils.AppsConst.FB_GUEST_CLIPBOARD
 import com.testproject.utils.AppsConst.FB_GUEST_ONLINE
 import com.testproject.utils.AppsConst.FB_HOST_CLIPBOARD
@@ -21,7 +21,7 @@ class FirebaseSyncManager(
     private val viewModel: SharedViewModel,
     private val clipboardMonitor: ClipboardMonitor,
     private val encryptionHelper: EncryptionHelper,
-    private val repo: FirebaseRepository
+    private val repo: ISessionRepository
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
