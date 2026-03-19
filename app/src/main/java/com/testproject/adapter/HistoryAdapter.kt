@@ -9,6 +9,8 @@ import com.testproject.R
 import com.testproject.domain.model.HistoryItem
 import com.testproject.databinding.ItemHistoryActivityBinding
 import com.testproject.utils.FileUtils
+import com.testproject.utils.addClickAnimation
+import com.testproject.utils.slideUp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -17,10 +19,12 @@ import java.util.concurrent.TimeUnit
 class HistoryAdapter : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
 
     private val items = mutableListOf<HistoryItem>()
+    private var lastPosition = -1
 
     fun updateItems(newItems: List<HistoryItem>) {
         items.clear()
         items.addAll(newItems)
+        lastPosition = -1
         notifyDataSetChanged()
     }
 
@@ -31,14 +35,29 @@ class HistoryAdapter : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
-        holder.bind(item, position == 0, position == items.size - 1)
+        holder.bind(item)
+        
+        val currentPosition = holder.bindingAdapterPosition
+        if (currentPosition > lastPosition) {
+            // Modern staggered slide-up animation
+            holder.itemView.slideUp(
+                duration = 500,
+                startDelay = (currentPosition * 40L).coerceAtMost(400L)
+            )
+            lastPosition = currentPosition
+        }
     }
 
     override fun getItemCount() = items.size
 
     class ViewHolder(private val binding: ItemHistoryActivityBinding) : RecyclerView.ViewHolder(binding.root) {
         
-        fun bind(item: HistoryItem, isFirst: Boolean, isLast: Boolean) {
+        init {
+            // iOS-like tactile feedback on touch
+            binding.root.addClickAnimation()
+        }
+
+        fun bind(item: HistoryItem) {
             val context = binding.root.context
             
             // Status and Color

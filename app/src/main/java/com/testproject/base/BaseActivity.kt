@@ -7,17 +7,19 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.findNavController
-import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.testproject.R
 import com.testproject.helper.CustomBottomSheetDialog
 import com.testproject.helper.Progressbar
 import com.testproject.network.NetworkUtils
+import com.testproject.utils.SecurityUtils
 import kotlinx.coroutines.launch
 
 open class BaseActivity : AppCompatActivity() {
     private var progressBar: Dialog? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         WindowCompat.setDecorFitsSystemWindows(window, true)
+        // Prevent screenshots and screen recording for enhanced security
+        SecurityUtils.preventScreenshots(this)
         super.onCreate(savedInstanceState)
         initProgressBar()
     }
@@ -38,7 +40,6 @@ open class BaseActivity : AppCompatActivity() {
             progressBar?.dismiss()
         } catch (e: WindowManager.BadTokenException) {
             e.printStackTrace()
-//            FirebaseCrashlytics.getInstance().recordException(e)
         }
     }
 
@@ -49,7 +50,6 @@ open class BaseActivity : AppCompatActivity() {
             }
         } catch (e: WindowManager.BadTokenException) {
             hideLoading()
-//            FirebaseCrashlytics.getInstance().recordException(e)
         }
     }
 

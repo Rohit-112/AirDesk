@@ -40,7 +40,9 @@ import com.testproject.helper.CustomBottomSheetDialog
 import com.testproject.network.NetworkUtils
 import com.testproject.utils.AppsConst.FILE_PROTOCOL_PREFIX
 import com.testproject.utils.AppsConst.FILE_PROTOCOL_SEPARATOR
+import com.testproject.utils.fadeIn
 import com.testproject.utils.showToast
+import com.testproject.utils.slideUp
 import com.testproject.viewmodel.HomeViewModel
 import com.testproject.viewmodel.SharedViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -97,6 +99,15 @@ class HomeFragment : BaseFragment() {
         observeViewModel()
         observeLocalHistory()
         loadPersistedSession()
+        
+        // Modern initial entrance animation
+        animateEntrance()
+    }
+
+    private fun animateEntrance() {
+        binding.layoutStatus.root.slideUp(500, 100)
+        binding.layoutTransfer.root.slideUp(500, 200)
+        binding.layoutHistory.root.slideUp(500, 300)
     }
 
     private fun setupRecyclerViews() {
@@ -164,7 +175,13 @@ class HomeFragment : BaseFragment() {
         
         viewModel.queuedHistory.observe(viewLifecycleOwner) { items ->
             queueAdapter.updateItems(items)
-            binding.layoutQueue.root.visibility = if (items.isNotEmpty()) View.VISIBLE else View.GONE
+            if (items.isNotEmpty()) {
+                if (binding.layoutQueue.root.visibility != View.VISIBLE) {
+                    binding.layoutQueue.root.slideUp(400)
+                }
+            } else {
+                binding.layoutQueue.root.visibility = View.GONE
+            }
         }
     }
 
@@ -398,8 +415,18 @@ class HomeFragment : BaseFragment() {
         }
         binding.layoutStatus.tvConnectedTo.setTextColor(ContextCompat.getColor(requireContext(), uiState.textColor))
         
-        binding.layoutDisconnected.root.visibility = if (uiState.showDisconnectedLayout) View.VISIBLE else View.GONE
-        binding.layoutTransfer.root.visibility = if (uiState.showTransferCard) View.VISIBLE else View.GONE
+        if (uiState.showDisconnectedLayout) {
+             if (binding.layoutDisconnected.root.visibility != View.VISIBLE) binding.layoutDisconnected.root.fadeIn()
+        } else {
+             binding.layoutDisconnected.root.visibility = View.GONE
+        }
+        
+        if (uiState.showTransferCard) {
+            if (binding.layoutTransfer.root.visibility != View.VISIBLE) binding.layoutTransfer.root.slideUp()
+        } else {
+            binding.layoutTransfer.root.visibility = View.GONE
+        }
+
         binding.layoutStatus.btnUnlink.visibility = if (uiState.showUnlinkButton) View.VISIBLE else View.GONE
     }
 
