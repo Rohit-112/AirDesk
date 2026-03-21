@@ -4,8 +4,10 @@ import com.testproject.data.SessionRepositoryImpl
 import com.testproject.data.StorageRepositoryImpl
 import com.testproject.data.local.HistoryRepositoryImpl
 import com.testproject.domain.repository.IHistoryRepository
+import com.testproject.domain.repository.IPreferenceRepository
 import com.testproject.domain.repository.ISessionRepository
 import com.testproject.domain.repository.IStorageRepository
+import com.testproject.utils.AppPreference
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -33,4 +35,10 @@ abstract class RepositoryModule {
     abstract fun bindStorageRepository(
         storageRepositoryImpl: StorageRepositoryImpl
     ): IStorageRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPreferenceRepository(
+        appPreference: AppPreference
+    ): IPreferenceRepository
 }

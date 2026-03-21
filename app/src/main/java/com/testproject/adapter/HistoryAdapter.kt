@@ -16,7 +16,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-class HistoryAdapter : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
+class HistoryAdapter(private val onItemClick: (HistoryItem) -> Unit) : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
 
     private val items = mutableListOf<HistoryItem>()
     private var lastPosition = -1
@@ -35,7 +35,7 @@ class HistoryAdapter : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
-        holder.bind(item)
+        holder.bind(item, onItemClick)
         
         val currentPosition = holder.bindingAdapterPosition
         if (currentPosition > lastPosition) {
@@ -57,9 +57,11 @@ class HistoryAdapter : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
             binding.root.addClickAnimation()
         }
 
-        fun bind(item: HistoryItem) {
+        fun bind(item: HistoryItem, onItemClick: (HistoryItem) -> Unit) {
             val context = binding.root.context
             
+            binding.root.setOnClickListener { onItemClick(item) }
+
             // Status and Color
             if (item.isReceived) {
                 binding.tvStatus.text = "Received"

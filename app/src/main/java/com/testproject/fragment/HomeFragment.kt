@@ -1,32 +1,16 @@
 package com.testproject.fragment
 
-import android.annotation.SuppressLint
-import android.content.ContentValues
-import android.graphics.Bitmap
-import android.graphics.Color
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.provider.MediaStore
-import android.provider.OpenableColumns
-import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
-import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
-import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
-import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.MultiFormatWriter
-import com.journeyapps.barcodescanner.BarcodeEncoder
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.testproject.R
@@ -36,54 +20,50 @@ import com.testproject.adapter.QueueAdapter
 import com.testproject.base.BaseFragment
 import com.testproject.databinding.FragmentHomeBinding
 import com.testproject.domain.model.HistoryItem
-import com.testproject.helper.CustomBottomSheetDialog
-import com.testproject.network.NetworkUtils
+import com.testproject.domain.webrtc.TransferProgress
+import com.testproject.utils.*
 import com.testproject.utils.AppsConst.FILE_PROTOCOL_PREFIX
 import com.testproject.utils.AppsConst.FILE_PROTOCOL_SEPARATOR
-import com.testproject.utils.fadeIn
-import com.testproject.utils.showToast
-import com.testproject.utils.slideUp
-import com.testproject.viewmodel.HomeViewModel
-import com.testproject.viewmodel.SharedViewModel
+import com.testproject.viewmodel.*
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class HomeFragment : BaseFragment() {
 
     private var _binding: FragmentHomeBinding? = null
     private val binding get() = _binding!!
-    
-    private val sharedViewModel: SharedViewModel by activityViewModels()
-    private val viewModel: HomeViewModel by viewModels()
+
+    private val sessionViewModel: SessionViewModel by viewModels()
+    private val historyViewModel: HistoryViewModel by viewModels()
+    private val fileTransferViewModel: FileTransferViewModel by viewModels()
+    private val webRTCViewModel: WebRTCViewModel by viewModels()
+
+    @Inject lateinit var clipboardHelper: ClipboardHelper
+    @Inject lateinit var fileHelper: FileHelper
+    @Inject lateinit var qrHelper: QRHelper
+    @Inject lateinit var networkHelper: NetworkHelper
+    @Inject lateinit var sessionHelper: SessionHelper
+    @Inject lateinit var deviceHelper: DeviceHelper
+
+    private lateinit var dialogHelper: DialogHelper
+    private lateinit var uiHelper: HomeUIHelper
 
     private lateinit var sharedAdapter: HistoryAdapter
     private lateinit var receivedAdapter: HistoryAdapter
     private lateinit var queueAdapter: QueueAdapter
 
-    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { handleFileSelection(it) }
-    }
+    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { it?.let { handleFileSelection(it) } }
 
     private val qrScannerLauncher = registerForActivityResult(ScanContract()) { result ->
-        if (result.contents != null) {
-            val code = result.contents
+        result.contents?.let { code ->
             if (code.length == 6 && code.all { it.isDigit() }) {
                 binding.layoutDisconnected.etSessionCode.setText(code)
                 joinSession(code)
-            } else {
-                requireContext().showToast("Invalid QR Code")
-            }
+            } else requireContext().showToast("Invalid QR Code")
         }
-    }
-
-    private val deviceId: String by lazy {
-        @SuppressLint("HardwareIds")
-        Settings.Secure.getString(requireContext().contentResolver, Settings.Secure.ANDROID_ID)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -93,224 +73,133 @@ class HomeFragment : BaseFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        dialogHelper = DialogHelper(childFragmentManager)
+        uiHelper = HomeUIHelper(binding)
         btmNavShow(true)
         setupRecyclerViews()
         setupClickListeners()
-        observeViewModel()
+        observeViewModels()
         observeLocalHistory()
-        loadPersistedSession()
-        
-        // Modern initial entrance animation
-        animateEntrance()
-    }
-
-    private fun animateEntrance() {
-        binding.layoutStatus.root.slideUp(500, 100)
-        binding.layoutTransfer.root.slideUp(500, 200)
-        binding.layoutHistory.root.slideUp(500, 300)
+        sessionViewModel.loadPersistedSession()
+        uiHelper.animateEntrance()
     }
 
     private fun setupRecyclerViews() {
-        sharedAdapter = HistoryAdapter()
-        receivedAdapter = HistoryAdapter()
-        queueAdapter = QueueAdapter { item -> handleQueueItemClick(item) }
+        sharedAdapter = HistoryAdapter { handleHistoryItemClick(it) }
+        receivedAdapter = HistoryAdapter { handleHistoryItemClick(it) }
+        queueAdapter = QueueAdapter { handleQueueItemClick(it) }
 
-        binding.layoutHistory.rvSharedItems.apply {
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = sharedAdapter
-        }
+        binding.layoutHistory.rvSharedItems.apply { layoutManager = LinearLayoutManager(requireContext()); adapter = sharedAdapter }
+        binding.layoutHistory.rvReceivedItems.apply { layoutManager = LinearLayoutManager(requireContext()); adapter = receivedAdapter }
+        binding.layoutQueue.rvQueueItems.apply { layoutManager = LinearLayoutManager(requireContext()); adapter = queueAdapter }
+    }
 
-        binding.layoutHistory.rvReceivedItems.apply {
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = receivedAdapter
-        }
-
-        binding.layoutQueue.rvQueueItems.apply {
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = queueAdapter
+    private fun handleHistoryItemClick(item: HistoryItem) {
+        if (item.isFile) {
+            val fileName = item.fileName ?: "file"
+            // Check if file exists locally in Downloads
+            val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
+            
+            if (file.exists()) {
+                FileUtils.openFile(requireContext(), file)
+            } else if (item.isReceived) {
+                // If it doesn't exist but was received, try to download
+                parseFileProtocol(item.content)?.let { (name, url) ->
+                    dialogHelper.showDownloadDialog(name, url) { downloadFile(name, url) }
+                } ?: requireContext().showToast("File record missing info")
+            } else {
+                requireContext().showToast("Local file not found")
+            }
+        } else {
+            clipboardHelper.copyToClipboard(item.content)
+            requireContext().showToast("Copied to clipboard")
         }
     }
 
+    private fun parseFileProtocol(content: String): Pair<String, String>? {
+        if (!content.startsWith(FILE_PROTOCOL_PREFIX)) return null
+        val data = content.removePrefix(FILE_PROTOCOL_PREFIX).split(FILE_PROTOCOL_SEPARATOR)
+        return if (data.size == 2) data[0] to data[1] else null
+    }
+
     private fun observeLocalHistory() {
-        viewModel.sharedHistory.observe(viewLifecycleOwner) { items ->
-            sharedAdapter.updateItems(items)
-            
-            if (items.isEmpty()) {
-                binding.layoutHistory.rvSharedItems.visibility = View.GONE
-                binding.layoutHistory.tvNoShared.visibility = View.VISIBLE
-            } else {
-                binding.layoutHistory.rvSharedItems.visibility = View.VISIBLE
-                binding.layoutHistory.tvNoShared.visibility = View.GONE
-                
-                // Dynamic Height: max 3 items
-                val params = binding.layoutHistory.rvSharedItems.layoutParams
-                if (items.size > 3) {
-                    params.height = (3 * resources.displayMetrics.density * 80).toInt()
-                } else {
-                    params.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                }
-                binding.layoutHistory.rvSharedItems.layoutParams = params
+        historyViewModel.sharedHistory.observe(viewLifecycleOwner) { shared ->
+            historyViewModel.receivedHistory.observe(viewLifecycleOwner) { received ->
+                sharedAdapter.updateItems(shared)
+                receivedAdapter.updateItems(received)
+                uiHelper.updateHistoryVisibility(shared.size, received.size)
             }
         }
-        
-        viewModel.receivedHistory.observe(viewLifecycleOwner) { items ->
-            receivedAdapter.updateItems(items)
-            
-            if (items.isEmpty()) {
-                binding.layoutHistory.rvReceivedItems.visibility = View.GONE
-                binding.layoutHistory.tvNoReceived.visibility = View.VISIBLE
-            } else {
-                binding.layoutHistory.rvReceivedItems.visibility = View.VISIBLE
-                binding.layoutHistory.tvNoReceived.visibility = View.GONE
-                
-                val params = binding.layoutHistory.rvReceivedItems.layoutParams
-                if (items.size > 3) {
-                    params.height = (3 * resources.displayMetrics.density * 80).toInt()
-                } else {
-                    params.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                }
-                binding.layoutHistory.rvReceivedItems.layoutParams = params
-            }
-        }
-        
-        viewModel.queuedHistory.observe(viewLifecycleOwner) { items ->
-            queueAdapter.updateItems(items)
-            if (items.isNotEmpty()) {
-                if (binding.layoutQueue.root.visibility != View.VISIBLE) {
-                    binding.layoutQueue.root.slideUp(400)
-                }
-            } else {
-                binding.layoutQueue.root.visibility = View.GONE
-            }
+        historyViewModel.queuedHistory.observe(viewLifecycleOwner) {
+            queueAdapter.updateItems(it)
+            uiHelper.updateQueueVisibility(it.isEmpty())
         }
     }
 
     private fun handleQueueItemClick(item: HistoryItem) {
-        if (sharedViewModel.connected.value == true && sharedViewModel.peerConnected.value == true) {
+        if (sessionViewModel.sessionCode.value != null && sessionViewModel.peerOnline.value == true) {
             shareQueueItem(item)
         } else {
-            val msg = if (sharedViewModel.connected.value != true) {
-                "Please connect to a session first to share this item."
-            } else {
-                "Waiting for a peer to connect to your session..."
-            }
-            
-            CustomBottomSheetDialog.newInstance(
-                title = "Not Ready to Share",
-                message = msg,
-                okText = "Got it",
-                showCancelButton = false
-            ).show(childFragmentManager, "not_connected")
+            val msg = if (sessionViewModel.sessionCode.value == null) "Connect to a session first." else "Waiting for a peer..."
+            dialogHelper.showNotReadyToShareDialog(msg)
         }
     }
 
-    private fun shareQueueItem(item: HistoryItem) {
-        lifecycleScope.launch {
-            if (item.isFile) {
-                val uri = item.content.toUri()
-                if (!viewModel.isFileSizeValid(requireContext(), uri)) {
-                    showFileSizeError()
-                    return@launch
-                }
-                
-                val sessionCode = sharedViewModel.sessionCode.value ?: return@launch
-                showLoading()
-                val downloadUrl = viewModel.uploadFile(sessionCode, uri, item.fileName ?: "file")
-                hideLoading()
-                
-                if (downloadUrl != null) {
-                    val protocolString = "$FILE_PROTOCOL_PREFIX${item.fileName}$FILE_PROTOCOL_SEPARATOR$downloadUrl"
-                    sharedViewModel.updateText(protocolString)
-                    viewModel.markAsNotQueued(item.id)
-                    requireContext().showToast("File shared successfully!")
-                } else {
-                    requireContext().showToast("Failed to upload file")
-                }
-            } else {
-                sharedViewModel.updateText(item.content)
-                viewModel.markAsNotQueued(item.id)
-                requireContext().showToast("Text shared!")
+    private fun shareQueueItem(item: HistoryItem) = lifecycleScope.launch {
+        if (item.isFile) {
+            val uri = item.content.toUri()
+            if (!fileTransferViewModel.isFileSizeValid(requireContext(), uri)) {
+                dialogHelper.showFileSizeError(); return@launch
             }
+            if (sessionViewModel.sessionCode.value == null) return@launch
+            showLoading()
+            val url = fileTransferViewModel.uploadFile(sessionViewModel.sessionCode.value!!, uri, item.fileName ?: "file")
+            hideLoading()
+            if (url != null) {
+                val protocol = "$FILE_PROTOCOL_PREFIX${item.fileName}$FILE_PROTOCOL_SEPARATOR$url"
+                sessionViewModel.sendContent(protocol)
+                historyViewModel.markAsNotQueued(item.id)
+                requireContext().showToast("File shared!")
+            } else requireContext().showToast("Upload failed")
+        } else {
+            sessionViewModel.sendContent(item.content)
+            historyViewModel.markAsNotQueued(item.id)
+            requireContext().showToast("Text shared!")
         }
     }
 
     private fun setupClickListeners() {
-        binding.layoutDisconnected.btnConnect.setOnClickListener { if (checkNetwork()) joinExistingSession() }
+        binding.layoutDisconnected.btnConnect.setOnClickListener { if (networkHelper.checkNetworkWithToast()) joinExistingSession() }
         binding.layoutDisconnected.btnRefreshCode.setOnClickListener {
-            if (checkNetwork()) {
-                sharedViewModel.sessionCode.value?.let { viewModel.deleteSession(it) }
-                generateNewSession()
+            if (networkHelper.checkNetworkWithToast()) {
+                sessionHelper.unlinkSession(sessionViewModel)
+                sessionHelper.createSession(sessionViewModel)
             }
         }
         binding.layoutDisconnected.btnScanQr.setOnClickListener { startQrScanner() }
-        binding.layoutDisconnected.btnShowQr.setOnClickListener { showQrCodeDialog() }
-        
-        binding.layoutStatus.btnUnlink.setOnClickListener { unlinkSession() }
+        binding.layoutDisconnected.btnShowQr.setOnClickListener { sessionViewModel.sessionCode.value?.let { qrHelper.showQrCodeDialog(requireContext(), it) } }
+        binding.layoutStatus.btnUnlink.setOnClickListener { sessionHelper.unlinkSession(sessionViewModel) }
         binding.layoutTransfer.btnShareText.setOnClickListener { shareCustomText() }
-        binding.layoutTransfer.btnSelectFiles.setOnClickListener { if (checkNetwork()) filePickerLauncher.launch("*/*") }
+        binding.layoutTransfer.btnSelectFiles.setOnClickListener { if (networkHelper.checkNetworkWithToast()) filePickerLauncher.launch("*/*") }
     }
 
-    private fun startQrScanner() {
-        val options = ScanOptions().apply {
-            setCaptureActivity(CustomScannerActivity::class.java)
-            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("Align QR code within the frame")
-            setBeepEnabled(false)
-            setBarcodeImageEnabled(false)
-            setOrientationLocked(false) // Allow rotation for scanner
-            setCameraId(0) // Use back camera
-        }
-        qrScannerLauncher.launch(options)
-    }
-
-    private fun showQrCodeDialog() {
-        val code = sharedViewModel.sessionCode.value ?: return
-        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_qr_code, null)
-        val ivQr = dialogView.findViewById<ImageView>(R.id.ivQrCode)
-        val tvCode = dialogView.findViewById<TextView>(R.id.tvCode)
-        val btnClose = dialogView.findViewById<View>(R.id.btnClose)
-
-        tvCode.text = code.chunked(3).joinToString(" ")
-        
-        try {
-            val writer = MultiFormatWriter()
-            val bitMatrix = writer.encode(code, BarcodeFormat.QR_CODE, 512, 512)
-            val encoder = BarcodeEncoder()
-            val bitmap = encoder.createBitmap(bitMatrix)
-            ivQr.setImageBitmap(bitmap)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        val dialog = AlertDialog.Builder(requireContext())
-            .setView(dialogView)
-            .create()
-        
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        btnClose.setOnClickListener { dialog.dismiss() }
-        dialog.show()
-    }
+    private fun startQrScanner() = qrScannerLauncher.launch(ScanOptions().apply {
+        setCaptureActivity(CustomScannerActivity::class.java); setDesiredBarcodeFormats(ScanOptions.QR_CODE); setPrompt("Align QR code"); setBeepEnabled(false); setOrientationLocked(false)
+    })
 
     private fun handleFileSelection(uri: Uri) {
-        if (!viewModel.isFileSizeValid(requireContext(), uri)) {
-            showFileSizeError()
+        val name = fileHelper.getFileName(uri)
+        if (sessionViewModel.sessionCode.value == null) {
+            requireContext().showToast("Connect to a session first")
             return
         }
         
-        val fileName = getFileName(uri)
-        val sessionCode = sharedViewModel.sessionCode.value ?: return
-
-        showLoading()
         lifecycleScope.launch {
-            val downloadUrl = viewModel.uploadFile(sessionCode, uri, fileName)
-            hideLoading()
-            if (downloadUrl != null) {
-                val protocolString = "$FILE_PROTOCOL_PREFIX$fileName$FILE_PROTOCOL_SEPARATOR$downloadUrl"
-                saveToLocalHistory(content = protocolString, isReceived = false, isFile = true, fileName = fileName)
-                sharedViewModel.updateText(protocolString)
-                requireContext().showToast("File shared successfully!")
+            val bytes = requireContext().contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes != null) {
+                webRTCViewModel.sendFile(name, bytes)
             } else {
-                requireContext().showToast("Failed to upload file")
+                requireContext().showToast("Could not read file")
             }
         }
     }
@@ -318,129 +207,78 @@ class HomeFragment : BaseFragment() {
     private fun shareCustomText() {
         val text = binding.layoutTransfer.etShareText.text.toString().trim()
         if (text.isNotEmpty()) {
-            saveToLocalHistory(content = text, isReceived = false, isFile = false)
-            sharedViewModel.updateText(text)
+            historyViewModel.saveToHistory(HistoryItem(content = text, isReceived = false, isFile = false))
+            sessionViewModel.sendContent(text)
             binding.layoutTransfer.etShareText.setText("")
             requireContext().showToast("Text shared!")
-        } else {
-            requireContext().showToast("Please enter some text")
-        }
+        } else requireContext().showToast("Enter some text")
     }
 
     private fun handleReceivedContent(content: String) {
-        if (content.startsWith(FILE_PROTOCOL_PREFIX)) {
-            val fileData = content.removePrefix(FILE_PROTOCOL_PREFIX).split(FILE_PROTOCOL_SEPARATOR)
-            if (fileData.size == 2) {
-                val fileName = fileData[0]
-                saveToLocalHistory(content = content, isReceived = true, isFile = true, fileName = fileName)
-                showDownloadDialog(fileName, fileData[1])
-            }
+        val protocol = parseFileProtocol(content)
+        if (protocol != null) {
+            val (name, url) = protocol
+            historyViewModel.saveToHistory(HistoryItem(content = content, isReceived = true, isFile = true, fileName = name))
+            dialogHelper.showDownloadDialog(name, url) { downloadFile(name, url) }
         } else {
-            saveToLocalHistory(content = content, isReceived = true, isFile = false)
-            requireContext().showToast("Text updated to clipboard")
+            historyViewModel.saveToHistory(HistoryItem(content = content, isReceived = true, isFile = false))
+            clipboardHelper.copyToClipboard(content)
+            requireContext().showToast("Clipboard updated")
         }
     }
 
-    private fun saveToLocalHistory(content: String, isReceived: Boolean, isFile: Boolean, fileName: String? = null) {
-        viewModel.saveToHistory(
-            HistoryItem(content = content, isReceived = isReceived, isFile = isFile, fileName = fileName)
-        )
-    }
-
-    private fun observeViewModel() {
-        sharedViewModel.connected.observe(viewLifecycleOwner) { updateStatusUI() }
-        sharedViewModel.peerConnected.observe(viewLifecycleOwner) { updateStatusUI() }
-        sharedViewModel.sessionCode.observe(viewLifecycleOwner) { code ->
+    private fun observeViewModels() {
+        sessionViewModel.sessionCode.observe(viewLifecycleOwner) { code ->
             binding.layoutDisconnected.tvYourCode.text = code ?: "------"
             binding.layoutStatus.tvConnectedTo.text = code?.let { getString(R.string.connected_to, it) } ?: getString(R.string.status_not_connected)
+            uiHelper.updateStatusUI(code != null, sessionViewModel.peerOnline.value ?: false)
+            
+            if (code != null) {
+                webRTCViewModel.initConnection(code, sessionViewModel.isHost.value ?: true)
+            }
         }
-        sharedViewModel.receivedContent.observe(viewLifecycleOwner) { content ->
-            content?.let {
+        
+        sessionViewModel.isHost.observe(viewLifecycleOwner) { 
+            uiHelper.updateStatusUI(sessionViewModel.sessionCode.value != null, sessionViewModel.peerOnline.value ?: false) 
+        }
+        
+        sessionViewModel.peerOnline.observe(viewLifecycleOwner) { 
+            uiHelper.updateStatusUI(sessionViewModel.sessionCode.value != null, it ?: false) 
+        }
+        
+        sessionViewModel.receivedContent.observe(viewLifecycleOwner) {
+            it?.let {
                 handleReceivedContent(it)
-                sharedViewModel.setReceivedContent(null)
+                sessionViewModel.consumeReceivedContent()
+            }
+        }
+
+        webRTCViewModel.transferProgress.observe(viewLifecycleOwner) { progress ->
+            when (progress) {
+                is TransferProgress.Progress -> { /* UI update logic */ }
+                is TransferProgress.Success -> {
+                    requireContext().showToast("File sent via WebRTC: ${progress.fileName}")
+                    historyViewModel.saveToHistory(HistoryItem(content = "WEBRTC:${progress.fileName}", isReceived = false, isFile = true, fileName = progress.fileName))
+                }
+                is TransferProgress.Error -> {
+                    requireContext().showToast("WebRTC failed: ${progress.message}")
+                }
+            }
+        }
+
+        webRTCViewModel.incomingFile.observe(viewLifecycleOwner) { file ->
+            historyViewModel.saveToHistory(HistoryItem(content = "WEBRTC:${file.fileName}", isReceived = true, isFile = true, fileName = file.fileName))
+            lifecycleScope.launch {
+                val success = fileHelper.saveFileToPublicDirectory(file.fileName, file.fileBytes)
+                requireContext().showToast(if (success) "Received via WebRTC: ${file.fileName}" else "Failed to save WebRTC file")
             }
         }
     }
 
-    private fun saveFileToGallery(fileName: String, downloadUrl: String) {
-        showLoading()
-        lifecycleScope.launch {
-            val bytes = viewModel.downloadFileBytes(downloadUrl)
-            if (bytes != null) {
-                if (saveFileToPublicDirectory(fileName, bytes)) {
-                    viewModel.deleteFileByUrl(downloadUrl)
-                    requireContext().showToast("File saved to Downloads")
-                } else {
-                    requireContext().showToast("Failed to save file locally")
-                }
-            } else {
-                requireContext().showToast("Failed to download file")
-            }
+    private fun downloadFile(name: String, url: String) = lifecycleScope.launch {
+        fileHelper.downloadAndSaveFile(name, url, fileTransferViewModel, { showLoading() }) { success ->
             hideLoading()
-        }
-    }
-
-    private suspend fun saveFileToPublicDirectory(fileName: String, bytes: ByteArray): Boolean = withContext(Dispatchers.IO) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val resolver = requireContext().contentResolver
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "*/*")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                }
-                resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)?.let { uri ->
-                    resolver.openOutputStream(uri)?.use { it.write(bytes) }
-                    true
-                } ?: false
-            } else {
-                val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
-                FileOutputStream(file).use { it.write(bytes) }
-                true
-            }
-        } catch (e: Exception) { false }
-    }
-
-    private fun updateStatusUI() {
-        val isConnected = sharedViewModel.connected.value ?: false
-        val isPeerConnected = sharedViewModel.peerConnected.value ?: false
-        val uiState = getUIState(isConnected, isPeerConnected)
-
-        binding.layoutStatus.statusCard.setCardBackgroundColor(ContextCompat.getColor(requireContext(), uiState.bgColor))
-        binding.layoutStatus.ivStatusIcon.setImageResource(uiState.iconRes)
-        binding.layoutStatus.ivStatusIcon.setColorFilter(ContextCompat.getColor(requireContext(), uiState.textColor))
-        binding.layoutStatus.tvStatusText.apply {
-            text = getString(uiState.textRes)
-            setTextColor(ContextCompat.getColor(requireContext(), uiState.textColor))
-        }
-        binding.layoutStatus.tvConnectedTo.setTextColor(ContextCompat.getColor(requireContext(), uiState.textColor))
-        
-        if (uiState.showDisconnectedLayout) {
-             if (binding.layoutDisconnected.root.visibility != View.VISIBLE) binding.layoutDisconnected.root.fadeIn()
-        } else {
-             binding.layoutDisconnected.root.visibility = View.GONE
-        }
-        
-        if (uiState.showTransferCard) {
-            if (binding.layoutTransfer.root.visibility != View.VISIBLE) binding.layoutTransfer.root.slideUp()
-        } else {
-            binding.layoutTransfer.root.visibility = View.GONE
-        }
-
-        binding.layoutStatus.btnUnlink.visibility = if (uiState.showUnlinkButton) View.VISIBLE else View.GONE
-    }
-
-    private fun getUIState(isConnected: Boolean, isPeerConnected: Boolean) = when {
-        isConnected && isPeerConnected -> HomeUIState(R.color.status_connected_bg, R.color.status_connected_text, R.drawable.connected, R.string.status_connected, false, true, true)
-        isConnected -> HomeUIState(android.R.color.holo_orange_light, android.R.color.holo_orange_dark, R.drawable.refresh, R.string.status_waiting, true, false, true)
-        else -> HomeUIState(R.color.status_disconnected_bg, R.color.status_disconnected_text, R.drawable.disconnected, R.string.status_not_connected, true, false, false)
-    }
-
-    private fun unlinkSession() {
-        sharedViewModel.sessionCode.value?.let {
-            viewModel.deleteSession(it)
-            sharedViewModel.clearSession()
-            lifecycleScope.launch { viewModel.clearPersistedSession() }
+            requireContext().showToast(if (success) "Saved to Downloads" else "Download failed")
         }
     }
 
@@ -450,73 +288,10 @@ class HomeFragment : BaseFragment() {
         joinSession(code)
     }
 
-    private fun joinSession(code: String) {
-        viewModel.joinSession(code, deviceId) { success, error ->
-            if (success) {
-                lifecycleScope.launch {
-                    viewModel.saveSession(code, false)
-                    sharedViewModel.setSession(code, false)
-                    sharedViewModel.setConnected(true)
-                }
-                binding.layoutDisconnected.etSessionCode.setText("")
-            } else showErrorDialog(error ?: "Unknown error")
-        }
-    }
-
-    private fun loadPersistedSession() = lifecycleScope.launch {
-        viewModel.getSessionCode()?.let {
-            sharedViewModel.setSession(it, viewModel.isHost())
-            sharedViewModel.setConnected(true)
-        } ?: generateNewSession()
-    }
-
-    private fun generateNewSession() = viewModel.createSession(deviceId) { code ->
-        code?.let {
-            lifecycleScope.launch {
-                viewModel.saveSession(it, true)
-                sharedViewModel.setSession(it, true)
-                sharedViewModel.setConnected(true)
-            }
-        } ?: requireContext().showToast("Failed to generate code")
-    }
-
-    private fun checkNetwork() = if (NetworkUtils.isConnected(requireContext())) true else { requireContext().showToast(getString(R.string.no_internet)); false }
-
-    @SuppressLint("Range")
-    private fun getFileName(uri: Uri): String {
-        var name = "file_${System.currentTimeMillis()}"
-        requireContext().contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) name = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME))
-        }
-        return name
-    }
-
-    private fun showDownloadDialog(fileName: String, url: String) = CustomBottomSheetDialog.newInstance(
-        title = "File Received",
-        message = "You received: $fileName. Download?",
-        okText = "Download",
-        cancelText = "Ignore",
-        showOkButton = true,
-        showCancelButton = true,
-        onOkClicked = { saveFileToGallery(fileName, url) }
-    ).show(childFragmentManager, "dl")
-
-    private fun showFileSizeError() = CustomBottomSheetDialog.newInstance(
-        title = "File Too Large",
-        message = "Max size 5MB.",
-        showOkButton = false,
-        cancelText = "Got it",
-        showCancelButton = true
-    ).show(childFragmentManager, "error")
-
-    private fun showErrorDialog(msg: String) = CustomBottomSheetDialog.newInstance(
-        title = "Error",
-        message = msg,
-        showOkButton = true,
-        showCancelButton = false
-    ).show(childFragmentManager, "err")
+    private fun joinSession(code: String) = sessionHelper.joinSession(code, sessionViewModel,
+        onSuccess = { binding.layoutDisconnected.etSessionCode.setText("") },
+        onError = { dialogHelper.showErrorDialog(it) }
+    )
 
     override fun onDestroyView() { super.onDestroyView(); _binding = null }
-
-    private data class HomeUIState(val bgColor: Int, val textColor: Int, val iconRes: Int, val textRes: Int, val showDisconnectedLayout: Boolean, val showTransferCard: Boolean, val showUnlinkButton: Boolean)
 }

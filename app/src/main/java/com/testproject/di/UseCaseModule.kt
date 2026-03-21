@@ -1,6 +1,7 @@
 package com.testproject.di
 
 import com.testproject.domain.repository.IHistoryRepository
+import com.testproject.domain.repository.IPreferenceRepository
 import com.testproject.domain.repository.ISessionRepository
 import com.testproject.domain.repository.IStorageRepository
 import com.testproject.domain.usecase.*
@@ -77,4 +78,20 @@ object UseCaseModule {
     @Provides
     @Singleton
     fun provideDeleteSessionStorageUseCase(repository: IStorageRepository) = DeleteSessionStorageUseCase(repository)
+
+    @Provides
+    @Singleton
+    fun provideSaveSessionUseCase(repository: IPreferenceRepository) = SaveSessionUseCase(repository)
+
+    @Provides
+    @Singleton
+    fun provideGetSessionCodeUseCase(repository: IPreferenceRepository) = GetSessionCodeUseCase(repository)
+
+    @Provides
+    @Singleton
+    fun provideIsHostUseCase(repository: IPreferenceRepository) = IsHostUseCase(repository)
+
+    @Provides
+    @Singleton
+    fun provideClearPersistedSessionUseCase(repository: IPreferenceRepository) = ClearPersistedSessionUseCase(repository)
 }

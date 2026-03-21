@@ -9,6 +9,7 @@ import com.google.crypto.tink.Aead
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.aead.AeadKeyTemplates
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import com.testproject.domain.repository.IPreferenceRepository
 import com.testproject.utils.AppsConst.DATA_STORE
 import com.testproject.utils.AppsConst.IS_HOST_KEY
 import com.testproject.utils.AppsConst.IS_LOGGED_IN
@@ -24,7 +25,7 @@ private val Context.dataStore by preferencesDataStore(DATA_STORE)
 @Singleton
 class AppPreference @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : IPreferenceRepository {
 
     private val dataStore = context.dataStore
 
@@ -63,47 +64,47 @@ class AppPreference @Inject constructor(
             String(aead.decrypt(Base64.decode(value, Base64.NO_WRAP), null))
         }.onFailure { it.printStackTrace() }.getOrNull()
     
-    suspend fun saveSessionCode(code: String) {
+    override suspend fun saveSessionCode(code: String) {
         dataStore.edit { it[prefKey(SESSION_CODE_KEY)] = encrypt(code) }
     }
 
-    suspend fun getSessionCode(): String? {
+    override suspend fun getSessionCode(): String? {
         val encrypted = dataStore.data.first()[prefKey(SESSION_CODE_KEY)]
         return encrypted?.let { decrypt(it) }
     }
 
-    suspend fun setIsHost(isHost: Boolean) {
+    override suspend fun setIsHost(isHost: Boolean) {
         dataStore.edit { it[prefKey(IS_HOST_KEY)] = isHost.toString() }
     }
 
-    suspend fun isHost(): Boolean {
+    override suspend fun isHost(): Boolean {
         return dataStore.data.first()[prefKey(IS_HOST_KEY)]?.toBoolean() ?: true
     }
     
-    suspend fun setLoggedIn(value: Boolean) {
+    override suspend fun setLoggedIn(value: Boolean) {
         dataStore.edit { it[prefKey(IS_LOGGED_IN)] = value.toString() }
     }
 
-    suspend fun isLoggedIn(): Boolean {
+    override suspend fun isLoggedIn(): Boolean {
         return dataStore.data.first()[prefKey(IS_LOGGED_IN)]?.toBoolean() ?: false
     }
     
-    suspend fun saveLastSentText(text: String) {
+    override suspend fun saveLastSentText(text: String) {
         dataStore.edit { it[prefKey(LAST_SENT_TEXT_KEY)] = text }
     }
 
-    suspend fun getLastSentText(): String? {
+    override suspend fun getLastSentText(): String? {
         return dataStore.data.first()[prefKey(LAST_SENT_TEXT_KEY)]
     }
     
-    suspend fun removeSession() {
+    override suspend fun removeSession() {
         dataStore.edit {
             it.remove(prefKey(SESSION_CODE_KEY))
             it.remove(prefKey(IS_HOST_KEY))
         }
     }
     
-    suspend fun clearPreferences() {
+    override suspend fun clearPreferences() {
         dataStore.edit { it.clear() }
     }
 }

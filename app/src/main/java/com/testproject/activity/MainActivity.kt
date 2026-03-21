@@ -5,24 +5,18 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
-import android.util.Log
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.testproject.R
 import com.testproject.base.BaseActivity
 import com.testproject.domain.model.HistoryItem
-import com.testproject.domain.repository.ISessionRepository
 import com.testproject.domain.usecase.InsertHistoryUseCase
 import com.testproject.databinding.ActivityMainBinding
 import com.testproject.sync.ClipboardMonitor
-import com.testproject.sync.FirebaseSyncManager
-import com.testproject.utils.EncryptionHelper
 import com.testproject.utils.show
 import com.testproject.utils.showToast
-import com.testproject.viewmodel.SharedViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -31,16 +25,11 @@ import javax.inject.Inject
 class MainActivity : BaseActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private val sharedViewModel: SharedViewModel by viewModels()
-
     private lateinit var clipboardMonitor: ClipboardMonitor
-    private lateinit var firebaseSyncManager: FirebaseSyncManager
     
     @Inject lateinit var insertHistoryUseCase: InsertHistoryUseCase
-    @Inject lateinit var sessionRepository: ISessionRepository
 
     private var backPressedTime: Long = 0
-    private val TAG = "MainActivityLogs"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,27 +39,10 @@ class MainActivity : BaseActivity() {
 
         setupNavigation()
 
-        // 1. Initialize Monitor
-        clipboardMonitor = ClipboardMonitor(this) { text ->
-            Log.d(TAG, "Local copy detected: $text")
-            sharedViewModel.updateText(text)
-        }
+        clipboardMonitor = ClipboardMonitor(this) { }
         clipboardMonitor.start()
 
-        // 2. Initialize Sync Manager
-        val encryptionHelper = EncryptionHelper(this)
-        firebaseSyncManager = FirebaseSyncManager(
-            context = this,
-            clipboardMonitor = clipboardMonitor,
-            viewModel = sharedViewModel,
-            encryptionHelper = encryptionHelper,
-            repo = sessionRepository
-        )
-        firebaseSyncManager.bind(this)
-
-        // 3. Handle data shared from other apps
         handleIncomingIntent(intent)
-        observeViewModel()
         setupBackPressed()
     }
 
@@ -83,7 +55,7 @@ class MainActivity : BaseActivity() {
             override fun handleOnBackPressed() {
                 if (navController.currentDestination?.id == R.id.homeFragment) {
                     if (backPressedTime + 2000 > System.currentTimeMillis()) {
-                        finishAffinity() // Exit app and clear stack
+                        finishAffinity()
                     } else {
                         showToast("Press back again to exit")
                     }
@@ -150,16 +122,9 @@ class MainActivity : BaseActivity() {
         return name
     }
 
-    private fun observeViewModel() {
-        sharedViewModel.connected.observe(this) { isConnected ->
-            Log.d(TAG, "Connection status: $isConnected")
-        }
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         clipboardMonitor.stop()
-        firebaseSyncManager.shutdown()
     }
 
     fun btmNavShow(isShown: Boolean = true) {

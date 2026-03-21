@@ -108,4 +108,7 @@ dependencies {
     // QR Scanning
     implementation(libs.zxing.android.embedded)
     implementation(libs.zxing.core)
+
+    // WebRTC
+    implementation(libs.webrtc)
 }

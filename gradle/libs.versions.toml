@@ -43,6 +43,7 @@ espressoCore = "3.7.0"
 room = "2.7.0-alpha13"
 zxing = "4.3.0"
 zxingCore = "3.5.3"
+webrtc = "144.7559.01"
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
@@ -118,3 +119,6 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 # ZXing
 zxing-android-embedded = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxing" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
+
+# WebRTC
+webrtc = { group = "io.github.webrtc-sdk", name = "android", version.ref = "webrtc" }

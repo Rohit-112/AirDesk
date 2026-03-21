@@ -19,7 +19,7 @@ import kotlinx.coroutines.tasks.await
  */
 class CleanupWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
-    private val encryptionHelper by lazy { EncryptionHelper(applicationContext) }
+    private val encryptionHelper = EncryptionHelper()
 
     override suspend fun doWork(): Result {
         return try {

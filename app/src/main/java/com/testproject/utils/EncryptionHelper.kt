@@ -1,6 +1,5 @@
 package com.testproject.utils
 
-import android.content.Context
 import android.util.Base64
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -14,7 +13,7 @@ import javax.inject.Singleton
  * Uses AES-GCM for authenticated encryption.
  */
 @Singleton
-class EncryptionHelper @Inject constructor(context: Context) {
+class EncryptionHelper @Inject constructor() {
 
     // A fixed key for cross-device sync. 
     // In a production app, this could be derived from the session code for better security.

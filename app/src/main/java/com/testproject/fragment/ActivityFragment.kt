@@ -11,8 +11,12 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.testproject.R
 import com.testproject.adapter.HistoryAdapter
 import com.testproject.databinding.FragmentActivityBinding
-import com.testproject.viewmodel.HomeViewModel
+import com.testproject.domain.model.HistoryItem
+import com.testproject.utils.ClipboardHelper
+import com.testproject.utils.showToast
+import com.testproject.viewmodel.HistoryViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class ActivityFragment : Fragment() {
@@ -20,7 +24,10 @@ class ActivityFragment : Fragment() {
     private var _binding: FragmentActivityBinding? = null
     private val binding get() = _binding!!
 
-    private val viewModel: HomeViewModel by viewModels()
+    private val historyViewModel: HistoryViewModel by viewModels()
+
+    @Inject
+    lateinit var clipboardHelper: ClipboardHelper
 
     private lateinit var historyAdapter: HistoryAdapter
 
@@ -40,16 +47,25 @@ class ActivityFragment : Fragment() {
     }
 
     private fun setupRecyclerView() {
-        historyAdapter = HistoryAdapter()
+        historyAdapter = HistoryAdapter { item -> handleItemClick(item) }
         binding.rvActivityHistory.apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = historyAdapter
         }
     }
 
+    private fun handleItemClick(item: HistoryItem) {
+        if (item.isFile) {
+            requireContext().showToast("File item: ${item.fileName}")
+        } else {
+            clipboardHelper.copyToClipboard(item.content)
+            requireContext().showToast("Text copied to clipboard")
+        }
+    }
+
     private fun observeHistory() {
-        viewModel.sharedHistory.observe(viewLifecycleOwner) { shared ->
-            viewModel.receivedHistory.observe(viewLifecycleOwner) { received ->
+        historyViewModel.sharedHistory.observe(viewLifecycleOwner) { shared ->
+            historyViewModel.receivedHistory.observe(viewLifecycleOwner) { received ->
                 val combinedList = (shared + received).sortedByDescending { it.timestamp }
                 if (combinedList.isEmpty()) {
                     binding.layoutEmptyState.visibility = View.VISIBLE
