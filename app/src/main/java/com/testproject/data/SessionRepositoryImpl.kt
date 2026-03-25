@@ -19,6 +19,7 @@ class SessionRepositoryImpl @Inject constructor() : ISessionRepository {
 
     override fun createSession(deviceId: String, onResult: (String?) -> Unit) {
         val code = (100000..999999).random().toString()
+        
         database.child(code).get().addOnSuccessListener { snapshot ->
             if (snapshot.exists()) {
                 createSession(deviceId, onResult)
@@ -31,11 +32,15 @@ class SessionRepositoryImpl @Inject constructor() : ISessionRepository {
                     FB_GUEST_CLIPBOARD to ""
                 )
                 database.child(code).setValue(data).addOnSuccessListener {
-                    database.child(code).onDisconnect().removeValue()
+                    database.child(code).child(FB_HOST_ONLINE).onDisconnect().setValue(false)
                     onResult(code)
-                }.addOnFailureListener { onResult(null) }
+                }.addOnFailureListener {
+                    onResult(null)
+                }
             }
-        }.addOnFailureListener { onResult(null) }
+        }.addOnFailureListener {
+            onResult(null)
+        }
     }
 
     override fun joinSession(code: String, deviceId: String, onResult: (Boolean, String?) -> Unit) {
@@ -44,24 +49,38 @@ class SessionRepositoryImpl @Inject constructor() : ISessionRepository {
                 onResult(false, "Session not found")
                 return@addOnSuccessListener
             }
-            if (snapshot.child(FB_HOST_ID).getValue(String::class.java) == deviceId) {
+            
+            val hostId = snapshot.child(FB_HOST_ID).getValue(String::class.java)
+            if (hostId == deviceId) {
                 onResult(false, "Cannot join own session")
                 return@addOnSuccessListener
             }
-            if (snapshot.child(FB_GUEST_ONLINE).getValue(Boolean::class.java) == true) {
+            
+            val isGuestOnline = snapshot.child(FB_GUEST_ONLINE).getValue(Boolean::class.java) == true
+            if (isGuestOnline) {
                 onResult(false, "Session full")
             } else {
-                val updates = mapOf(FB_GUEST_ID to deviceId, FB_GUEST_ONLINE to true)
-                database.child(code).updateChildren(updates)
-                database.child(code).child(FB_GUEST_ONLINE).onDisconnect().setValue(false)
-                onResult(true, null)
+                val updates = mapOf(
+                    FB_GUEST_ID to deviceId, 
+                    FB_GUEST_ONLINE to true
+                )
+                database.child(code).updateChildren(updates).addOnSuccessListener {
+                    database.child(code).child(FB_GUEST_ONLINE).onDisconnect().setValue(false)
+                    onResult(true, null)
+                }.addOnFailureListener {
+                    onResult(false, it.message)
+                }
             }
-        }.addOnFailureListener { onResult(false, it.message) }
+        }.addOnFailureListener {
+            onResult(false, it.message)
+        }
     }
 
     override fun observeClipboard(code: String, node: String, onData: (String?) -> Unit): ValueEventListener {
         val listener = object : ValueEventListener {
-            override fun onDataChange(s: DataSnapshot) = onData(s.getValue(String::class.java))
+            override fun onDataChange(s: DataSnapshot) {
+                onData(s.getValue(String::class.java))
+            }
             override fun onCancelled(e: DatabaseError) {}
         }
         database.child(code).child(node).addValueEventListener(listener)
@@ -70,8 +89,10 @@ class SessionRepositoryImpl @Inject constructor() : ISessionRepository {
 
     override fun observePeerPresence(code: String, node: String, onStatus: (Boolean) -> Unit): ValueEventListener {
         val listener = object : ValueEventListener {
-            override fun onDataChange(s: DataSnapshot) = onStatus(s.getValue(Boolean::class.java) ?: false)
-            override fun onCancelled(e: DatabaseError) = onStatus(false)
+            override fun onDataChange(s: DataSnapshot) {
+                onStatus(s.getValue(Boolean::class.java) ?: false)
+            }
+            override fun onCancelled(e: DatabaseError) {}
         }
         database.child(code).child(node).addValueEventListener(listener)
         return listener

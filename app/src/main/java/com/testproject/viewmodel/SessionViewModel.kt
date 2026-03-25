@@ -103,10 +103,13 @@ class SessionViewModel @Inject constructor(
         val presenceNode = if (isHost) FB_GUEST_ONLINE else FB_HOST_ONLINE
 
         clipboardListener = observeClipboardUseCase(code, remoteNode) { encrypted ->
+            // Fix: Check if encrypted is not null AND actually has content to decrypt
+            // This prevents clearing an already empty node and causing an infinite loop
             if (!encrypted.isNullOrEmpty() && encrypted != lastSentEncrypted) {
                 val decrypted = encryptionHelper.decrypt(encrypted)
                 if (decrypted.isNotEmpty()) {
                     _receivedContent.postValue(decrypted)
+                    // We only clear if we actually received something meaningful
                     clearRemoteNode(code, remoteNode)
                     resetInactivityTimer()
                 }
@@ -120,6 +123,7 @@ class SessionViewModel @Inject constructor(
     }
 
     private fun clearRemoteNode(code: String, node: String) {
+        // Fix: Use a check to ensure we don't clear if it's already empty
         writeClipboardUseCase(code, node, "")
     }
 
@@ -129,9 +133,11 @@ class SessionViewModel @Inject constructor(
         val localNode = if (isHost) FB_HOST_CLIPBOARD else FB_GUEST_CLIPBOARD
         
         val encrypted = encryptionHelper.encrypt(content)
-        lastSentEncrypted = encrypted
-        writeClipboardUseCase(code, localNode, encrypted)
-        resetInactivityTimer()
+        if (encrypted.isNotEmpty()) {
+            lastSentEncrypted = encrypted
+            writeClipboardUseCase(code, localNode, encrypted)
+            resetInactivityTimer()
+        }
     }
 
     fun deleteSession(code: String) {

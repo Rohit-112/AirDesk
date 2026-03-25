@@ -1,14 +1,20 @@
 package com.testproject.data.webrtc
 
 import android.content.Context
-import android.util.Log
-import com.google.firebase.database.ChildEventListener
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.*
 import com.google.gson.Gson
 import com.testproject.domain.webrtc.*
 import com.testproject.utils.AppsConst.FB_SESSIONS
+import com.testproject.utils.AppsConst.FB_WEBRTC_GUEST
+import com.testproject.utils.AppsConst.FB_WEBRTC_HOST
+import com.testproject.utils.AppsConst.TYPE_ANSWER
+import com.testproject.utils.AppsConst.TYPE_CANDIDATE
+import com.testproject.utils.AppsConst.TYPE_DISCONNECT
+import com.testproject.utils.AppsConst.TYPE_OFFER
+import com.testproject.utils.AppsConst.DC_LABEL
+import com.testproject.utils.AppsConst.DC_MSG_NAME
+import com.testproject.utils.AppsConst.DC_MSG_END
+import com.testproject.utils.AppsConst.DC_MSG_DISCONNECT
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -31,48 +37,54 @@ class WebRTCRepositoryImpl @Inject constructor(
     private var factory: PeerConnectionFactory? = null
     private var dataChannel: DataChannel? = null
 
+    private val _connectionState = MutableStateFlow<WebRTCState>(WebRTCState.Idle)
+    override val connectionState: StateFlow<WebRTCState> = _connectionState.asStateFlow()
+
     private val _incomingFiles = MutableSharedFlow<IncomingFile>(extraBufferCapacity = 1)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var signalingListener: ChildEventListener? = null
     private val pendingIceCandidates = mutableListOf<IceCandidate>()
 
-    private val TAG = "WebRTC_Repo"
-
     override fun initialize(sessionCode: String, isHost: Boolean) {
-        if (this.sessionCode == sessionCode && this.isHost == isHost) {
-            Log.d(TAG, "Already initialized with code: $sessionCode")
-            return
-        }
+        synchronized(this) {
+            if (this.sessionCode == sessionCode && this.isHost == isHost && 
+                (_connectionState.value == WebRTCState.Connected || _connectionState.value == WebRTCState.Connecting)) {
+                return
+            }
 
-        Log.d(TAG, "Initializing WebRTC: code=$sessionCode, isHost=$isHost")
-        close() // Ensure fresh start
-        this.sessionCode = sessionCode
-        this.isHost = isHost
+            closeInternal()
+            
+            this.sessionCode = sessionCode
+            this.isHost = isHost
+            _connectionState.value = WebRTCState.Connecting
 
-        initializeWebRTC()
-        setupPeerConnection()
-        if (isHost) {
-            setupDataChannel()
+            initializeWebRTCFactory()
+            setupPeerConnection()
+            
+            if (isHost) {
+                setupDataChannel()
+            }
+            
+            setupSignaling()
         }
-        setupSignaling()
     }
 
-    private fun initializeWebRTC() {
+    private fun initializeWebRTCFactory() {
         try {
             if (factory == null) {
-                PeerConnectionFactory.initialize(
-                    PeerConnectionFactory.InitializationOptions.builder(context)
-                        .createInitializationOptions()
-                )
+                val initOptions = PeerConnectionFactory.InitializationOptions.builder(context)
+                    .setEnableInternalTracer(true)
+                    .createInitializationOptions()
+                PeerConnectionFactory.initialize(initOptions)
+                
                 val options = PeerConnectionFactory.Options()
                 factory = PeerConnectionFactory.builder()
                     .setOptions(options)
                     .createPeerConnectionFactory()
-                Log.d(TAG, "PeerConnectionFactory initialized")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Init error", e)
+            _connectionState.value = WebRTCState.Error("WebRTC Init Failed: ${e.message}")
         }
     }
 
@@ -84,51 +96,52 @@ class WebRTCRepositoryImpl @Inject constructor(
         )
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
         rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
 
         peerConnection = factory?.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate?) {
                 candidate?.let {
-                    Log.d(TAG, "onIceCandidate: ${it.sdpMid}")
                     val model = IceCandidateModel(it.sdp, it.sdpMid, it.sdpMLineIndex)
-                    sendSignalingMessage(SignalingMessage("candidate", candidate = model))
+                    sendSignalingMessage(SignalingMessage(TYPE_CANDIDATE, candidate = model))
                 }
             }
 
             override fun onDataChannel(channel: DataChannel?) {
-                Log.d(TAG, "onDataChannel received")
                 dataChannel = channel
                 setupDataChannelCallbacks()
             }
 
             override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
-                Log.d(TAG, "onIceConnectionChange: $newState")
-                if (newState == PeerConnection.IceConnectionState.DISCONNECTED || 
-                    newState == PeerConnection.IceConnectionState.FAILED ||
-                    newState == PeerConnection.IceConnectionState.CLOSED) {
-                    // Logic to handle reconnection or closure
+                when (newState) {
+                    PeerConnection.IceConnectionState.DISCONNECTED -> {
+                        _connectionState.value = WebRTCState.Disconnected("ICE Connection Lost")
+                    }
+                    PeerConnection.IceConnectionState.FAILED -> {
+                        _connectionState.value = WebRTCState.Error("ICE Connection Failed")
+                    }
+                    else -> {}
                 }
             }
 
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
-                Log.d(TAG, "onConnectionChange: $newState")
+                if (newState == PeerConnection.PeerConnectionState.CONNECTED) {
+                    _connectionState.value = WebRTCState.Connected
+                } else if (newState == PeerConnection.PeerConnectionState.FAILED) {
+                    _connectionState.value = WebRTCState.Error("Peer Connection Failed")
+                }
             }
 
-            override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState?) {
-                Log.d(TAG, "onIceGatheringChange: $newState")
+            override fun onRenegotiationNeeded() {
+                if (isHost) {
+                    createOffer()
+                }
             }
 
-            override fun onSignalingChange(newState: PeerConnection.SignalingState?) {
-                Log.d(TAG, "onSignalingChange: $newState")
-            }
-
+            override fun onSignalingChange(newState: PeerConnection.SignalingState?) {}
+            override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState?) {}
             override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) {}
             override fun onAddStream(p0: MediaStream?) {}
             override fun onRemoveStream(p0: MediaStream?) {}
-            override fun onRenegotiationNeeded() {
-                Log.d(TAG, "onRenegotiationNeeded")
-                if (isHost) createOffer()
-            }
-
             override fun onAddTrack(p0: RtpReceiver?, p1: Array<out MediaStream>?) {}
             override fun onIceConnectionReceivingChange(p0: Boolean) {}
         })
@@ -136,8 +149,8 @@ class WebRTCRepositoryImpl @Inject constructor(
 
     private fun setupDataChannelCallbacks() {
         dataChannel?.registerObserver(object : DataChannel.Observer {
-            val receivedBuffer = mutableListOf<Byte>()
-            var currentFileName = ""
+            private val receivedBuffer = mutableListOf<Byte>()
+            private var currentFileName = ""
             
             override fun onMessage(buffer: DataChannel.Buffer) {
                 val data = ByteArray(buffer.data.remaining())
@@ -146,15 +159,17 @@ class WebRTCRepositoryImpl @Inject constructor(
                     receivedBuffer.addAll(data.toList())
                 } else {
                     val msg = String(data)
-                    Log.d(TAG, "DataChannel Message: $msg")
-                    if (msg.startsWith("NAME:")) {
-                        currentFileName = msg.substring(5)
-                        receivedBuffer.clear()
-                        Log.d(TAG, "Receiving file: $currentFileName")
-                    } else if (msg == "END") {
-                        Log.d(TAG, "File reception complete: $currentFileName")
-                        scope.launch {
-                            _incomingFiles.emit(IncomingFile(currentFileName, receivedBuffer.toByteArray()))
+                    when {
+                        msg.startsWith(DC_MSG_NAME) -> {
+                            currentFileName = msg.substring(DC_MSG_NAME.length)
+                            receivedBuffer.clear()
+                        }
+                        msg == DC_MSG_END -> {
+                            val fileBytes = receivedBuffer.toByteArray()
+                            scope.launch { _incomingFiles.emit(IncomingFile(currentFileName, fileBytes)) }
+                        }
+                        msg == DC_MSG_DISCONNECT -> {
+                            closeInternal()
                         }
                     }
                 }
@@ -162,7 +177,9 @@ class WebRTCRepositoryImpl @Inject constructor(
 
             override fun onStateChange() {
                 val state = dataChannel?.state()
-                Log.d(TAG, "DataChannel State Change: $state")
+                if (state == DataChannel.State.OPEN) {
+                    _connectionState.value = WebRTCState.Connected
+                }
             }
 
             override fun onBufferedAmountChange(p0: Long) {}
@@ -170,189 +187,172 @@ class WebRTCRepositoryImpl @Inject constructor(
     }
 
     private fun createOffer() {
-        Log.d(TAG, "Creating Offer")
+        val constraints = MediaConstraints()
         peerConnection?.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(sdp: SessionDescription?) {
                 sdp?.let {
-                    Log.d(TAG, "Offer Created, setting local description")
                     peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
                         override fun onSetSuccess() {
-                            Log.d(TAG, "Local description set, sending offer")
-                            sendSignalingMessage(SignalingMessage("offer", it.description))
-                        }
-                        override fun onSetFailure(error: String?) {
-                            Log.e(TAG, "Failed to set local description: $error")
+                            sendSignalingMessage(SignalingMessage(TYPE_OFFER, it.description))
                         }
                     }, it)
                 }
             }
-            override fun onCreateFailure(error: String?) {
-                Log.e(TAG, "Failed to create offer: $error")
-            }
-        }, MediaConstraints())
+        }, constraints)
     }
 
     private fun setupSignaling() {
-        val remoteNode = if (isHost) "guestSignaling" else "hostSignaling"
-        Log.d(TAG, "Setting up signaling listener on node: $remoteNode")
-        signalingListener = db.child(sessionCode!!).child(remoteNode)
+        val code = sessionCode ?: return
+        val nodeToListen = if (isHost) FB_WEBRTC_HOST else FB_WEBRTC_GUEST
+        
+        signalingListener = db.child(code).child(nodeToListen)
             .addChildEventListener(object : ChildEventListener {
                 override fun onChildAdded(s: DataSnapshot, p: String?) {
                     val json = s.getValue(String::class.java) ?: return
-                    val msg = gson.fromJson(json, SignalingMessage::class.java)
-                    Log.d(TAG, "Received Signaling Message: ${msg.type}")
-                    handleSignalingMessage(msg)
-                    s.ref.removeValue()
+                    try {
+                        val msg = gson.fromJson(json, SignalingMessage::class.java)
+                        handleSignalingMessage(msg)
+                    } catch (e: Exception) {}
+                    s.ref.removeValue() 
                 }
-
                 override fun onChildChanged(p0: DataSnapshot, p1: String?) {}
                 override fun onChildRemoved(p0: DataSnapshot) {}
                 override fun onChildMoved(p0: DataSnapshot, p1: String?) {}
-                override fun onCancelled(p0: DatabaseError) {
-                    Log.e(TAG, "Signaling cancelled: ${p0.message}")
-                }
+                override fun onCancelled(p0: DatabaseError) {}
             })
     }
 
     private fun handleSignalingMessage(msg: SignalingMessage) {
         when (msg.type) {
-            "offer" -> {
-                Log.d(TAG, "Handling Offer")
-                peerConnection?.setRemoteDescription(
-                    object : SimpleSdpObserver() {
-                        override fun onSetSuccess() {
-                            Log.d(TAG, "Remote description set (Offer), creating answer")
-                            peerConnection?.createAnswer(object : SimpleSdpObserver() {
-                                override fun onCreateSuccess(sdp: SessionDescription?) {
-                                    sdp?.let {
-                                        peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
-                                            override fun onSetSuccess() {
-                                                Log.d(TAG, "Local description set (Answer), sending answer")
-                                                sendSignalingMessage(SignalingMessage("answer", it.description))
-                                                drainIceQueue()
-                                            }
-                                        }, it)
-                                    }
+            TYPE_OFFER -> {
+                peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
+                    override fun onSetSuccess() {
+                        peerConnection?.createAnswer(object : SimpleSdpObserver() {
+                            override fun onCreateSuccess(sdp: SessionDescription?) {
+                                sdp?.let {
+                                    peerConnection?.setLocalDescription(object : SimpleSdpObserver() {
+                                        override fun onSetSuccess() {
+                                            sendSignalingMessage(SignalingMessage(TYPE_ANSWER, it.description))
+                                            drainIceQueue()
+                                        }
+                                    }, it)
                                 }
-                            }, MediaConstraints())
-                        }
-                    },
-                    SessionDescription(SessionDescription.Type.OFFER, msg.sdp)
-                )
+                            }
+                        }, MediaConstraints())
+                    }
+                }, SessionDescription(SessionDescription.Type.OFFER, msg.sdp))
             }
 
-            "answer" -> {
-                Log.d(TAG, "Handling Answer")
-                peerConnection?.setRemoteDescription(
-                    object : SimpleSdpObserver() {
-                        override fun onSetSuccess() {
-                            Log.d(TAG, "Remote description set (Answer)")
-                            drainIceQueue()
-                        }
-                    },
-                    SessionDescription(SessionDescription.Type.ANSWER, msg.sdp)
-                )
+            TYPE_ANSWER -> {
+                peerConnection?.setRemoteDescription(object : SimpleSdpObserver() {
+                    override fun onSetSuccess() {
+                        drainIceQueue()
+                    }
+                }, SessionDescription(SessionDescription.Type.ANSWER, msg.sdp))
             }
 
-            "candidate" -> {
+            TYPE_CANDIDATE -> {
                 msg.candidate?.let {
-                    Log.d(TAG, "Handling ICE Candidate")
                     val ice = IceCandidate(it.sdpMid, it.sdpMLineIndex, it.sdp)
                     if (peerConnection?.remoteDescription != null) {
                         peerConnection?.addIceCandidate(ice)
                     } else {
-                        Log.d(TAG, "Queueing ICE Candidate")
                         pendingIceCandidates.add(ice)
                     }
                 }
+            }
+            TYPE_DISCONNECT -> {
+                closeInternal()
             }
         }
     }
 
     private fun drainIceQueue() {
-        Log.d(TAG, "Draining ICE Candidate Queue: ${pendingIceCandidates.size} candidates")
         pendingIceCandidates.forEach { 
-            val result = peerConnection?.addIceCandidate(it)
-            Log.d(TAG, "Added queued ICE candidate: $result")
+            peerConnection?.addIceCandidate(it) 
         }
         pendingIceCandidates.clear()
     }
 
     private fun setupDataChannel() {
-        Log.d(TAG, "Setting up Data Channel as Host")
         val init = DataChannel.Init()
-        dataChannel = peerConnection?.createDataChannel("fileTransfer", init)
+        dataChannel = peerConnection?.createDataChannel(DC_LABEL, init)
         setupDataChannelCallbacks()
     }
 
     private fun sendSignalingMessage(msg: SignalingMessage) {
-        val targetNode = if (isHost) "hostSignaling" else "guestSignaling"
-        sessionCode?.let { code ->
-            Log.d(TAG, "Sending Signaling Message: ${msg.type} to $targetNode")
-            db.child(code).child(targetNode).push()
-                .setValue(gson.toJson(msg))
-        }
+        val code = sessionCode ?: return
+        val targetNode = if (isHost) FB_WEBRTC_GUEST else FB_WEBRTC_HOST
+        db.child(code).child(targetNode).push().setValue(gson.toJson(msg))
     }
 
     override fun sendFile(fileName: String, fileBytes: ByteArray): Flow<TransferProgress> = flow {
-        val currentState = dataChannel?.state()
-        Log.d(TAG, "Attempting to send file: $fileName, State: $currentState")
-        
-        if (currentState != DataChannel.State.OPEN) {
-            emit(TransferProgress.Error("WebRTC Data Channel not open (Current state: $currentState)"))
+        val dc = dataChannel
+        if (dc == null || dc.state() != DataChannel.State.OPEN) {
+            emit(TransferProgress.Error("Connection not ready. Please wait."))
             return@flow
         }
         
-        dataChannel?.send(DataChannel.Buffer(ByteBuffer.wrap("NAME:$fileName".toByteArray()), false))
-        
-        val chunkSize = 16 * 1024
-        var offset = 0
-        while (offset < fileBytes.size) {
-            val remaining = fileBytes.size - offset
-            val current = if (remaining > chunkSize) chunkSize else remaining
-            val buffer = ByteBuffer.wrap(fileBytes, offset, current)
-            dataChannel?.send(DataChannel.Buffer(buffer, true))
-            offset += current
+        try {
+            dc.send(DataChannel.Buffer(ByteBuffer.wrap("$DC_MSG_NAME$fileName".toByteArray()), false))
             
-            emit(TransferProgress.Progress((offset * 100L / fileBytes.size).toInt()))
-            
-            // Flow control to avoid buffer overflow
-            while ((dataChannel?.bufferedAmount() ?: 0) > 1024 * 1024) {
-                delay(10)
+            val chunkSize = 16 * 1024
+            var offset = 0
+            while (offset < fileBytes.size) {
+                if (dc.state() != DataChannel.State.OPEN) throw Exception("DataChannel closed during transfer")
+                
+                val currentChunk = if (fileBytes.size - offset > chunkSize) chunkSize else fileBytes.size - offset
+                dc.send(DataChannel.Buffer(ByteBuffer.wrap(fileBytes, offset, currentChunk), true))
+                offset += currentChunk
+                
+                emit(TransferProgress.Progress((offset * 100L / fileBytes.size).toInt()))
+                
+                while (dc.bufferedAmount() > 1 * 1024 * 1024) { 
+                    delay(10) 
+                }
             }
+            dc.send(DataChannel.Buffer(ByteBuffer.wrap(DC_MSG_END.toByteArray()), false))
+            emit(TransferProgress.Success(fileName))
+        } catch (e: Exception) {
+            emit(TransferProgress.Error("Send Failed: ${e.message}"))
         }
-        dataChannel?.send(DataChannel.Buffer(ByteBuffer.wrap("END".toByteArray()), false))
-        Log.d(TAG, "File sent successfully: $fileName")
-        emit(TransferProgress.Success(fileName))
     }.flowOn(Dispatchers.IO)
 
     override fun observeIncomingFiles(): Flow<IncomingFile> = _incomingFiles.asSharedFlow()
 
     override fun close() {
-        Log.d(TAG, "Closing WebRTC Connection")
+        synchronized(this) {
+            closeInternal()
+        }
+    }
+
+    private fun closeInternal() {
+        if (dataChannel?.state() == DataChannel.State.OPEN) {
+            try { 
+                dataChannel?.send(DataChannel.Buffer(ByteBuffer.wrap(DC_MSG_DISCONNECT.toByteArray()), false)) 
+            } catch (e: Exception) {}
+        }
+        
         sessionCode?.let { code ->
             signalingListener?.let {
-                val remoteNode = if (isHost) "guestSignaling" else "hostSignaling"
-                db.child(code).child(remoteNode).removeEventListener(it)
+                val node = if (isHost) FB_WEBRTC_HOST else FB_WEBRTC_GUEST
+                db.child(code).child(node).removeEventListener(it)
             }
         }
         signalingListener = null
-        dataChannel?.close()
+        
+        dataChannel?.dispose()
         dataChannel = null
         peerConnection?.dispose()
         peerConnection = null
         sessionCode = null
-        pendingIceCandidates.clear()
+        _connectionState.value = WebRTCState.Idle
     }
 
     private open class SimpleSdpObserver : SdpObserver {
         override fun onCreateSuccess(p0: SessionDescription?) {}
         override fun onSetSuccess() {}
-        override fun onCreateFailure(p0: String?) {
-            Log.e("WebRTC_SDP", "onCreateFailure: $p0")
-        }
-        override fun onSetFailure(p0: String?) {
-            Log.e("WebRTC_SDP", "onSetFailure: $p0")
-        }
+        override fun onCreateFailure(p0: String?) {}
+        override fun onSetFailure(p0: String?) {}
     }
 }

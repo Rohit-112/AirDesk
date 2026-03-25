@@ -17,6 +17,22 @@ object AppsConst {
     const val FB_GUEST_ONLINE = "guestOnline"
     const val FB_HOST_CLIPBOARD = "hostClipboard"
     const val FB_GUEST_CLIPBOARD = "guestClipboard"
+    
+    // WebRTC Signaling Nodes
+    const val FB_WEBRTC_HOST = "hostSignaling"
+    const val FB_WEBRTC_GUEST = "guestSignaling"
+
+    // WebRTC Message Types
+    const val TYPE_OFFER = "offer"
+    const val TYPE_ANSWER = "answer"
+    const val TYPE_CANDIDATE = "candidate"
+    const val TYPE_DISCONNECT = "disconnect"
+
+    // DataChannel Constants
+    const val DC_LABEL = "fileTransfer"
+    const val DC_MSG_NAME = "NAME:"
+    const val DC_MSG_END = "END"
+    const val DC_MSG_DISCONNECT = "DISCONNECT"
 
     // File Sharing Limits
     const val MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024 // 5MB Limit

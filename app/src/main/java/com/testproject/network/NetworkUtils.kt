@@ -12,11 +12,14 @@ object NetworkUtils {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val network = cm.activeNetwork ?: return false
             val capabilities = cm.getNetworkCapabilities(network) ?: return false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            // REMOVED NET_CAPABILITY_VALIDATED because it often fails on corporate Wi-Fi/Emulators
+            // despite internet being available. Just checking INTERNET is more reliable for app usage.
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } else {
             @Suppress("DEPRECATION")
-            cm.activeNetworkInfo?.isConnected == true
+            val networkInfo = cm.activeNetworkInfo
+            @Suppress("DEPRECATION")
+            networkInfo != null && networkInfo.isConnected
         }
     }
 }
