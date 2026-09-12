@@ -1,0 +1,101 @@
+[versions]
+# Build
+agp = "9.3.1"
+kotlin = "2.4.20"
+composeMultiplatform = "1.12.0"
+googleServices = "4.5.0"
+
+# Android SDK
+android-compileSdk = "37"
+android-targetSdk = "37"
+android-minSdk = "26"
+
+# AndroidX (Android only)
+androidx-activity = "1.13.0"
+androidx-core = "1.19.0"
+
+# JetBrains multiplatform ports of AndroidX
+jb-lifecycle = "2.11.0"
+jb-navigation = "2.9.2"
+jb-material3 = "1.9.0"
+jb-materialIcons = "1.7.3"
+
+# Multiplatform libraries
+androidx-datastore = "1.2.1"
+koin = "4.2.2"
+kotlinx-coroutines = "1.11.0"
+kotlinx-serialization = "1.11.0"
+kermit = "2.2.0"
+gitliveFirebase = "2.7.0"
+webrtcKmp = "0.125.11"
+webrtcJava = "0.16.0"
+cryptography = "0.6.0"
+qrose = "1.2.1"
+easyqrscan = "0.7.2"
+filekit = "0.16.0"
+
+[libraries]
+# Compose Multiplatform
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "jb-material3" }
+compose-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "jb-materialIcons" }
+
+# Lifecycle, ViewModel and navigation
+jb-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "jb-lifecycle" }
+jb-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "jb-lifecycle" }
+jb-navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "jb-navigation" }
+
+# AndroidX
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+androidx-datastore-preferences-core = { module = "androidx.datastore:datastore-preferences-core", version.ref = "androidx-datastore" }
+
+# Kotlin
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+
+# Dependency injection
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
+koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
+koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
+
+# Logging
+kermit = { module = "co.touchlab:kermit", version.ref = "kermit" }
+
+# Firebase (GitLive wraps the native SDKs on Android and iOS, firebase-java-sdk on desktop)
+gitlive-firebase-app = { module = "dev.gitlive:firebase-app", version.ref = "gitliveFirebase" }
+gitlive-firebase-auth = { module = "dev.gitlive:firebase-auth", version.ref = "gitliveFirebase" }
+gitlive-firebase-database = { module = "dev.gitlive:firebase-database", version.ref = "gitliveFirebase" }
+gitlive-firebase-storage = { module = "dev.gitlive:firebase-storage", version.ref = "gitliveFirebase" }
+
+# WebRTC: webrtc-kmp on Android and iOS, webrtc-java on desktop
+webrtc-kmp = { module = "com.shepeliev:webrtc-kmp", version.ref = "webrtcKmp" }
+webrtc-java = { module = "dev.onvoid.webrtc:webrtc-java", version.ref = "webrtcJava" }
+
+# End to end encryption (ECDH P-256 + AES-GCM, wire compatible with WebCrypto)
+cryptography-core = { module = "dev.whyoleg.cryptography:cryptography-core", version.ref = "cryptography" }
+cryptography-provider-optimal = { module = "dev.whyoleg.cryptography:cryptography-provider-optimal", version.ref = "cryptography" }
+
+# QR codes and files
+qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
+easyqrscan = { module = "io.github.kalinjul.easyqrscan:scanner", version.ref = "easyqrscan" }
+filekit-core = { module = "io.github.vinceglb:filekit-core", version.ref = "filekit" }
+filekit-dialogs = { module = "io.github.vinceglb:filekit-dialogs", version.ref = "filekit" }
+
+[plugins]
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidKotlinMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlinCocoapods = { id = "org.jetbrains.kotlin.native.cocoapods", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+googleServices = { id = "com.google.gms.google-services", version.ref = "googleServices" }

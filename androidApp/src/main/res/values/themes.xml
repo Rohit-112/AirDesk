@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Knotic</string>
+
+    <color name="knotic_background">#F6F7F9</color>
+    <color name="knotic_launcher_background">#08090C</color>
+
+    <style name="Theme.Knotic" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/knotic_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

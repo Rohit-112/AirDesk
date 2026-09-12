@@ -1,0 +1,13 @@
+plugins {
+    // Applied in the modules that need them; declared once here so every module
+    // resolves the same plugin versions.
+    alias(libs.plugins.androidApplication) apply false
+    alias(libs.plugins.androidKotlinMultiplatformLibrary) apply false
+    alias(libs.plugins.kotlinMultiplatform) apply false
+    alias(libs.plugins.kotlinJvm) apply false
+    alias(libs.plugins.kotlinCocoapods) apply false
+    alias(libs.plugins.kotlinSerialization) apply false
+    alias(libs.plugins.composeMultiplatform) apply false
+    alias(libs.plugins.composeCompiler) apply false
+    alias(libs.plugins.googleServices) apply false
+}
