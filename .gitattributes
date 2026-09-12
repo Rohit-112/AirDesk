@@ -1,0 +1,17 @@
+# Keep line endings stable no matter what core.autocrlf each machine uses.
+* text=auto
+
+# Must stay LF: it is run by sh on macOS and Linux.
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Must stay CRLF: Windows batch.
+*.bat text eol=crlf
+
+# Never touched.
+*.jar binary
+*.png binary
+*.ico binary
+*.icns binary
+*.keystore binary
+*.jks binary

@@ -34,6 +34,31 @@ ids play no part in pairing, so every platform still reaches the same sessions.
 The Realtime Database rules in the web repo (`database.rules.json`) apply
 unchanged.
 
+## Setting up on another machine
+
+Everything needed to build is committed, including the Gradle wrapper and all
+three Firebase configs. A clone needs only:
+
+1. **JDK 17 or newer.** Android Studio's bundled JBR works for building. It has
+   no `jpackage`, so desktop *packaging* needs a full JDK - see below.
+2. **Android SDK 37**, and one of:
+   - open the project in Android Studio once (it writes `local.properties`), or
+   - set `ANDROID_HOME` to the SDK path.
+
+   `local.properties` is deliberately not committed, because it holds a path
+   specific to one machine. Without it and without `ANDROID_HOME`, only the
+   Android module fails, with `SDK location not found`; the shared module and
+   the desktop app still build.
+3. **On macOS and Linux**, make the wrapper executable once - git on Windows
+   stores it without the executable bit:
+
+   ```bash
+   chmod +x gradlew
+   ```
+
+The first build downloads Gradle 9.5 and the dependencies, so allow a few
+minutes; after that it is incremental.
+
 ## Build and run
 
 Requirements: JDK 17+ (Android Studio's bundled JBR works), Android SDK 37.
