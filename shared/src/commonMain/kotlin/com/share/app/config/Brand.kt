@@ -3,10 +3,15 @@ package com.share.app.config
 /** Single source of truth for what the product is called and how it describes itself. */
 object Brand {
     const val NAME = "Knotic"
-    const val TAGLINE = "Send files and text between your phone and PC"
-    const val EYEBROW = "Free · No account · Encrypted"
-    const val INTRO = "Pair with a 6-digit code or scan the QR. Works with the Knotic app and the website on any device."
-    const val VERSION = "1.0.1"
+    const val TAGLINE = "Send files and text between any two devices"
+    const val EYEBROW = "Free · No sign-up · Encrypted"
+    const val INTRO = "Pair with a 6-digit code or scan the QR. Phone to PC, PC to PC or phone to phone - with the Knotic app or the website."
+
+    /**
+     * Bumped with every release, together with `app-version` in the version
+     * catalog; `./gradlew checkVersion` fails when the two disagree.
+     */
+    const val VERSION = "1.2.0"
     const val LEGAL_NAME = "Knotic"
 }
 
@@ -38,15 +43,23 @@ object AboutContent {
             body = "The two devices agree on a key directly with each other, and only the public halves ever travel. The key is never sent, never stored, and is different for every session - so the database only ever holds ciphertext that the server cannot open.",
         ),
         InfoItem(
+            title = "Images are converted on your device",
+            body = "Saving a photo as JPG, PNG or WEBP happens inside the app. The picture is redrawn locally and never uploaded anywhere to be converted.",
+        ),
+        InfoItem(
             title = "No account, nothing kept",
             body = "You are signed in anonymously. A session is deleted when you disconnect, and closes itself after 15 minutes of inactivity.",
+        ),
+        InfoItem(
+            title = "Anonymous usage and crash reports",
+            body = "On Android and iOS the app counts which features are used and reports crashes, so they can be fixed. Neither ever includes the text you send, a file, a file name or the pairing code.",
         ),
     )
 
     val faq = listOf(
         InfoItem(
-            title = "How do I send files from my phone to my PC without a cable?",
-            body = "Open ${Brand.NAME} on both devices. One shows a 6-digit code and a QR code - scan the QR or type the code on the other. Once paired, attach a file or paste text and it arrives on the other device in seconds.",
+            title = "How do I send files between two devices without a cable?",
+            body = "Open ${Brand.NAME} on both devices - two computers, two phones, or one of each. One shows a 6-digit code and a QR code; scan or type it on the other. Once paired, attach a file or paste text and it arrives in seconds.",
         ),
         InfoItem(
             title = "Do I need an account?",
@@ -67,6 +80,14 @@ object AboutContent {
         InfoItem(
             title = "Why won't my two devices connect?",
             body = "Some mobile networks block direct device-to-device connections. Put both devices on the same Wi-Fi network, or switch your phone from mobile data to Wi-Fi, then pair again.",
+        ),
+        InfoItem(
+            title = "Can I convert an iPhone HEIC photo to JPG?",
+            body = "Yes. Send the photo across and ${Brand.NAME} offers Save as JPG, PNG or WEBP on the device that received it, or use Convert only with no pairing at all. The picture is redrawn on your device and never uploaded. HEIC opens on Android 9 and later and on iPhone; the desktop app cannot read it yet, so convert it on the phone or in the browser.",
+        ),
+        InfoItem(
+            title = "Does it preview the file I received?",
+            body = "Yes. Photos and videos arrive with a preview you can see immediately, and the activity list shows a thumbnail of everything sent or received in the session, so you can tell one screenshot from another at a glance.",
         ),
     )
 }

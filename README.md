@@ -14,6 +14,11 @@ One Kotlin Multiplatform codebase, one Compose Multiplatform UI, three apps.
   default, exactly like `VITE_ENABLE_RELAY` on the web.
 - Sessions close after 15 minutes of inactivity; presence is cleared server side
   when a device drops off.
+- **Previews and conversion**: received photos and videos show a preview, the
+  activity list shows thumbnails, and any received image - or one picked in
+  *Convert only* - can be saved as JPG, PNG or WEBP, all on the device.
+
+Version **1.2.0**, in step with the website's 1.2.0.
 
 ## Firebase config
 
@@ -74,8 +79,11 @@ iOS needs a Mac with Xcode 16+ and CocoaPods.
 ./gradlew :desktopApp:packageUberJarForCurrentOS   # one portable jar, no jpackage needed
 ./gradlew :desktopApp:packageDistributionForCurrentOS   # .msi / .dmg / .deb
 
-# Shared unit tests (protocol, crypto, codecs)
+# Shared unit tests (protocol, crypto, file types, transfers, desktop image codec)
 ./gradlew :shared:jvmTest
+
+# Version check alone (the tests run it first anyway)
+./gradlew checkVersion
 
 # iOS (on a Mac)
 cd iosApp && pod install && open iosApp.xcworkspace
@@ -111,8 +119,28 @@ sign the produced `.exe`, or ship `packageUberJarForCurrentOS` and launch it
 with a signed runtime:
 
 ```
-"<jdk>\bin\javaw.exe" -jar Knotic-windows-x64-1.0.1.jar
+"<jdk>\bin\javaw.exe" -jar Knotic-windows-x64-1.2.0.jar
 ```
+
+## Releasing a new version
+
+The version is set once, in `gradle/libs.versions.toml`:
+
+```toml
+app-version = "1.2.0"   # what people see
+app-build = "2"         # must go up on every release
+```
+
+Android's `versionName`/`versionCode`, the desktop installer and the CocoaPods
+spec read it from there. Three places cannot, and `./gradlew checkVersion`
+fails until they match - the shared tests run it first:
+
+- `Brand.VERSION` in `shared/.../config/Brand.kt` (the footer and About screen)
+- `CFBundleShortVersionString` / `CFBundleVersion` in `iosApp/iosApp/Info.plist`
+- `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in `iosApp/iosApp.xcodeproj`
+
+Keep the app's version equal to the website's `package.json` when the two ship
+the same features.
 
 ## Architecture
 
@@ -126,18 +154,21 @@ shared/src/commonMain/kotlin/com/share/app/
 ├── domain/
 │   ├── model/       AppSessionState - the one contract screens read
 │   ├── policy/      Pure rules: pairing codes, retry policy, wire formats
+│   ├── media/       FileTypes (what a file is), ImageFormats, the ImageProcessor port
+│   ├── analytics/   The closed list of analytics events; logger and crash reporter ports
 │   ├── repository/  Interfaces for auth, session node, signalling, relay, storage
 │   ├── crypto/      SessionCipher interface
 │   ├── webrtc/      PeerConnectionPort - the transport, narrowed
-│   ├── session/     SessionEngine, WebRtcTransport, WebRtcLink, FileTransferEngine
-│   └── usecase/     PairingUseCase, TransferUseCase, PreferencesUseCase
-├── data/            Firebase (GitLive), cryptography-kotlin, DataStore, FileKit
+│   ├── session/     SessionEngine, WebRtcTransport, WebRtcLink, FileTransferEngine, FilePreviews
+│   └── usecase/     Pairing, Transfer, ConvertImage and Preferences use cases
+├── data/            Firebase (GitLive), cryptography-kotlin, DataStore, FileKit, log-to-crash bridge
 ├── di/              Koin modules; platformModule is expect/actual
 └── ui/              Compose screens - read state, send intents, nothing deeper
     ├── home/        HomeContract (UiState, Intent, Effect), HomeViewModel, HomeScreen
+    ├── convert/     Convert only: pick an image, save it in another format; the shared conversion state
     ├── about/       How it works, privacy, FAQ
-    ├── components/  Cards, buttons, status chip, the logo and hero graphics
-    ├── navigation/  Type-safe routes
+    ├── components/  Cards, buttons, status chip, file thumbnails, previews, the logo
+    ├── navigation/  Type-safe routes, and one screen view per destination
     └── theme/       The web client's design tokens, light and dark
 ```
 
@@ -145,9 +176,10 @@ Platform source sets:
 
 | Source set | Holds |
 | --- | --- |
-| `mobileMain` (Android + iOS) | webrtc-kmp peer connection, camera QR scanner |
-| `androidMain` / `iosMain` | Native data channels, clipboard, DataStore path, entry points |
-| `jvmMain` (desktop) | webrtc-java, AWT clipboard, window drag and drop, Firebase desktop init |
+| `mobileMain` (Android + iOS) | webrtc-kmp peer connection, camera QR scanner, Firebase Analytics and Crashlytics |
+| `androidMain` | Native data channels, clipboard, DataStore path, entry points, `AndroidImageProcessor` |
+| `iosMain` | Native data channels, clipboard, DataStore path, entry points, `UIKitImageProcessor` |
+| `jvmMain` (desktop) | webrtc-java, AWT clipboard, window drag and drop, Firebase desktop init, `SkiaImageProcessor` |
 
 **Rule of thumb:** nothing in `ui/` imports from `data/`. A screen observes its
 ViewModel's `uiState`, calls `onIntent(...)`, and collects `effects` once.
@@ -164,10 +196,84 @@ All of it runs on one confined dispatcher, which gives the run-to-completion
 behaviour the browser's event loop gives the web version. Pairing actions are
 additionally serialised with a mutex.
 
+### The life of a session
+
+The same rules as the website (its README has the full table):
+
+- **Whoever is last online owns the cleanup.** Alone in a session, a device
+  registers removal of the whole node on disconnect; with the other device
+  present, it only registers removal of its own presence fields, and the other
+  device - now alone - takes over. That is what lets a browser peer move to
+  another page of the site without the session dying.
+- **Cleanup removes fields, it never blanks them.** Writing `hostOnline: false`
+  into a node the other device already deleted recreates it as an empty shell.
+- **A guest that leaves gives its slot back**, and a host hands back the slot of
+  a guest that has been gone for 90 seconds, so the code can be used again. If
+  the host is already gone, the leaving guest deletes the node instead - while
+  it still holds the slot, because the rules stop it the moment it lets go.
+- **Ciphertext that cannot be opened yet is held**, and retried when a key is
+  next agreed. When the peer rebuilds its half of the exchange, the last message
+  this device sent is published again under the new key.
+
+The website also carries a paired session across its own page navigations
+(`sessionHandoff.ts`). The app has no such navigation - leaving a screen never
+touches the session - so there is nothing to port there.
+
+### Files: the size check and the stall timeout
+
+The sender announces `SIZE:<bytes>` just before `NAME:`, so a stream that stops
+short is rejected instead of being saved as a complete file. Clients that do not
+send it - including 1.0 apps - still work; the check is simply skipped. A receive
+with no chunk for 30 seconds is abandoned, so an interrupted send cannot wedge
+the receiving side. A relayed file is stored under a random name, never its own.
+
+### Previews and converting images
+
+What a file is comes from its first 32 bytes (`domain/media/FileTypes.kt`, a
+port of the web's `fileType.ts`), not its name - an iPhone photo called `.jpg`
+is often HEIC underneath. The pixel work is each platform's own:
+
+| Platform | Decoder | Reads | Video frames |
+| --- | --- | --- | --- |
+| Android 9+ | `ImageDecoder` | JPEG, PNG, WEBP, GIF, BMP, HEIC; AVIF from 12 | `MediaMetadataRetriever` |
+| Android 8 | `BitmapFactory` | the same minus HEIC and AVIF, without EXIF rotation | `MediaMetadataRetriever` |
+| iOS | UIKit | everything Photos produces, HEIC included | `AVAssetImageGenerator` |
+| Desktop | Skia | JPEG, PNG, WEBP, GIF, BMP, ICO | none - a type icon instead |
+
+All three write JPEG, PNG and WEBP (iOS has no WebP encoder, so it hands the
+pixels to Skia). Jobs run one at a time off the main thread, and anything over
+16.7 megapixels is scaled down first, as on the web. Known limits: an animated
+GIF keeps its first frame, metadata such as location is not carried over, SVG
+is not converted, and the desktop app cannot open HEIC. Unlike the website,
+the inbox shows a still frame for a video rather than a player.
+
+## Analytics and crash reports
+
+Android and iOS use Firebase Analytics and Crashlytics through GitLive; the
+desktop app reports nothing, because firebase-java-sdk has neither.
+
+- Events are a closed list in `domain/analytics/Analytics.kt` - screens, joins,
+  links, texts and files sent or received (with route and kind), conversions,
+  timeouts. None of them carries message text, a file name or a pairing code.
+- Warnings and errors from the app log become Crashlytics breadcrumbs; only an
+  error with a throwable becomes a non-fatal (`CrashReportingLogWriter`).
+- **Debug Android builds collect nothing** (`androidApp/src/debug/AndroidManifest.xml`).
+  To watch events, flip the analytics flag there and use DebugView.
+- The advertising ID and ad-personalisation signals are off on both platforms.
+- **iOS crash reports need dSYMs**, and that step lives in Xcode, not here.
+  After `pod install`, add a *Run Script* build phase to the `iosApp` target
+  running `"${PODS_ROOT}/FirebaseCrashlytics/run"`, with the input files listed
+  in Firebase's "Get readable crash reports" guide, and set *Debug Information
+  Format* to *DWARF with dSYM File* for Release. Without it crashes still
+  arrive, just unsymbolicated.
+- Android release builds upload the R8 mapping file to Crashlytics as part of
+  `assembleRelease`, so they need to be signed in to the Firebase project
+  (`-x uploadCrashlyticsMappingFileRelease` skips it).
+
 ### Why the data channels are native
 
 webrtc-kmp sends every data channel frame as binary and hides the frame type on
-receive. The web client tells control messages (`NAME:`, `END`, `DISCONNECT`)
+receive. The web client tells control messages (`SIZE:`, `NAME:`, `END`, `DISCONNECT`)
 from file bytes by frame type, so on Android and iOS the app drives
 `org.webrtc.DataChannel` / `RTCDataChannel` directly. webrtc-java on desktop
 keeps the distinction already.

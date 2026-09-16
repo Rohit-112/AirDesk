@@ -3,13 +3,18 @@ package com.share.app.ui.home
 import androidx.lifecycle.viewModelScope
 import com.share.app.base.BaseViewModel
 import com.share.app.config.AppConfig
+import com.share.app.domain.analytics.ConversionSource
+import com.share.app.domain.analytics.JoinMethod
+import com.share.app.domain.media.ImageFormat
 import com.share.app.domain.model.AppSessionState
 import com.share.app.domain.model.SessionRole
 import com.share.app.domain.model.SessionStatus
 import com.share.app.domain.policy.PairingCode
 import com.share.app.domain.policy.SessionLimits
+import com.share.app.domain.usecase.ConvertImageUseCase
 import com.share.app.domain.usecase.PairingUseCase
 import com.share.app.domain.usecase.TransferUseCase
+import com.share.app.ui.convert.ConversionController
 import com.share.app.util.currentTimeMillis
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -20,6 +25,7 @@ import kotlinx.coroutines.launch
 class HomeViewModel(
     private val pairingUseCase: PairingUseCase,
     private val transferUseCase: TransferUseCase,
+    private val convertImageUseCase: ConvertImageUseCase,
     private val config: AppConfig,
 ) : BaseViewModel<HomeUiState, HomeIntent, HomeEffect>(HomeUiState()) {
 
@@ -32,13 +38,23 @@ class HomeViewModel(
     private var historyCopiedJob: Job? = null
     private var lastActivityReportedAt = 0L
 
+    private val conversions = ConversionController(viewModelScope, convertImageUseCase) { conversion ->
+        updateState { copy(conversion = conversion) }
+    }
+
     init {
         pairingUseCase.session
             .onEach(::onSessionChanged)
             .launchIn(viewModelScope)
 
         transferUseCase.history
-            .onEach { history -> updateState { copy(history = history) } }
+            .onEach { history ->
+                updateState {
+                    // A row that no longer holds its file cannot be converted.
+                    val panelStillUsable = history.any { it.id == convertPanelId && it.hasPayload }
+                    copy(history = history, convertPanelId = convertPanelId.takeIf { panelStillUsable })
+                }
+            }
             .launchIn(viewModelScope)
     }
 
@@ -72,7 +88,6 @@ class HomeViewModel(
     override fun onIntent(intent: HomeIntent) {
         when (intent) {
             is HomeIntent.JoinCodeChanged -> onJoinCodeChanged(intent.value)
-            HomeIntent.JoinFieldFocused -> if (!currentState.session.joinIntent) pairingUseCase.beginJoin()
             HomeIntent.CancelJoin -> {
                 // Backing out has to hand a working code back.
                 updateState { copy(joinCode = "") }
@@ -89,7 +104,7 @@ class HomeViewModel(
             HomeIntent.ScannerDismissed -> updateState { copy(isScannerOpen = false) }
             is HomeIntent.CodeScanned -> {
                 updateState { copy(isScannerOpen = false, joinCode = intent.code) }
-                pairingUseCase.joinSession(intent.code)
+                pairingUseCase.joinSession(intent.code, JoinMethod.SCAN)
             }
             HomeIntent.RetrySignIn -> pairingUseCase.retrySignIn()
 
@@ -111,6 +126,13 @@ class HomeViewModel(
             is HomeIntent.SaveHistoryFile -> viewModelScope.launch { transferUseCase.saveHistoryFile(intent.id) }
             HomeIntent.ToggleActivityExpanded -> updateState { copy(isActivityExpanded = !isActivityExpanded) }
 
+            is HomeIntent.ConvertIncomingFile -> convertIncoming(intent.format)
+            is HomeIntent.ConvertHistoryFile -> convertHistory(intent.id, intent.format)
+            is HomeIntent.ToggleConvertPanel ->
+                updateState { copy(convertPanelId = if (convertPanelId == intent.id) null else intent.id) }
+            HomeIntent.SaveConvertedAgain -> conversions.saveAgain()
+            HomeIntent.ConvertOnlyClicked -> sendEffect(HomeEffect.NavigateToConvert)
+
             HomeIntent.ToggleAdvanced -> updateState { copy(isAdvancedOpen = !isAdvancedOpen) }
             HomeIntent.ToggleConnectionDetail -> updateState { copy(showConnectionDetail = !showConnectionDetail) }
             HomeIntent.RetryDirectConnection -> pairingUseCase.reconnectFileSharing()
@@ -125,7 +147,41 @@ class HomeViewModel(
         val digits = PairingCode.sanitize(value)
         updateState { copy(joinCode = digits) }
         // Six digits is unambiguous intent - no reason to make them press a button.
-        if (digits.length == PairingCode.LENGTH) pairingUseCase.joinSession(digits)
+        if (digits.length == PairingCode.LENGTH) {
+            pairingUseCase.joinSession(digits, JoinMethod.CODE)
+            return
+        }
+        // Typing is the first honest signal that this device's own code is being
+        // abandoned. Focus alone used to be enough, so moving through the field
+        // with a keyboard or a screen reader silently deleted a live pairing.
+        if (digits.isNotEmpty() && !currentState.session.joinIntent) pairingUseCase.beginJoin()
+    }
+
+    /** The inbox file and its activity row share an id, so either converts the same bytes. */
+    private fun convertIncoming(format: ImageFormat) {
+        val file = currentState.session.incomingFile ?: return
+        val id = file.localFileId ?: return
+        conversions.convert(
+            key = id,
+            source = ConversionSource.INBOX,
+            fileName = file.name,
+            mimeType = file.contentType,
+            format = format,
+            loadBytes = { convertImageUseCase.heldFile(id) },
+        )
+    }
+
+    private fun convertHistory(id: String, format: ImageFormat) {
+        val item = currentState.history.firstOrNull { it.id == id } ?: return
+        val mimeType = item.contentType ?: return
+        conversions.convert(
+            key = id,
+            source = ConversionSource.ACTIVITY,
+            fileName = item.title,
+            mimeType = mimeType,
+            format = format,
+            loadBytes = { convertImageUseCase.heldFile(id) },
+        )
     }
 
     private fun sendText() {

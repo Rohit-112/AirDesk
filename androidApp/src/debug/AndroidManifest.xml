@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Debug builds must not report into the production Firebase project.
+
+        Both build types share one applicationId and one google-services.json,
+        so data from a debug build is indistinguishable from a release one once
+        it arrives. These flags are read by the Firebase initialisation
+        providers at process start, which is why they live here: a runtime
+        setter would run after Crashlytics had installed its handler and
+        Analytics had logged the session start.
+
+        To watch events locally, flip the analytics flag to true and run
+          adb shell setprop debug.firebase.analytics.app com.sharing.app
+        then open Firebase DebugView. Do not commit it as true.
+    -->
+    <application>
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="false" />
+    </application>
+
+</manifest>

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,19 +17,34 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Transform
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +54,8 @@ import com.share.app.config.Brand
 import com.share.app.domain.model.ThemePreference
 import com.share.app.ui.components.AlertBanner
 import com.share.app.ui.components.HeroGraphic
+import com.share.app.ui.components.KnoticCard
+import com.share.app.ui.components.ToneBadge
 import com.share.app.ui.home.components.ActivityCard
 import com.share.app.ui.home.components.AdvancedPanel
 import com.share.app.ui.home.components.Composer
@@ -56,6 +74,7 @@ fun HomeScreen(
     themePreference: ThemePreference,
     onCycleTheme: () -> Unit,
     onNavigateToAbout: () -> Unit,
+    onNavigateToConvert: () -> Unit,
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -65,6 +84,7 @@ fun HomeScreen(
         viewModel.effects.collect { effect ->
             when (effect) {
                 HomeEffect.NavigateToAbout -> onNavigateToAbout()
+                HomeEffect.NavigateToConvert -> onNavigateToConvert()
             }
         }
     }
@@ -129,6 +149,8 @@ private fun HomeContent(
                 ) {
                     Hero()
 
+                    ModeChoice(onConvertOnly = { onIntent(HomeIntent.ConvertOnlyClicked) })
+
                     AnimatedVisibility(
                         visible = state.session.error != null,
                         enter = fadeIn() + slideInVertically { it / 2 },
@@ -141,13 +163,19 @@ private fun HomeContent(
                     }
 
                     // Once the devices are linked, sending is the job and the code
-                    // becomes reference material - so the two swap places.
+                    // becomes reference material - so the two swap places. They
+                    // are moved rather than rebuilt: otherwise every time the peer
+                    // blinked in or out, the field being typed in lost its focus
+                    // and the keyboard closed.
+                    val currentState by rememberUpdatedState(state)
+                    val pairing = remember { movableContentOf { PairingCard(currentState, onIntent) } }
+                    val workspace = remember { movableContentOf { Workspace(currentState, onIntent) } }
                     if (state.linked) {
-                        Workspace(state, onIntent)
-                        PairingCard(state, onIntent)
+                        workspace()
+                        pairing()
                     } else {
-                        PairingCard(state, onIntent)
-                        Workspace(state, onIntent)
+                        pairing()
+                        workspace()
                     }
 
                     AdvancedPanel(state, onIntent)
@@ -176,6 +204,52 @@ private fun Workspace(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
         TransferStatusCard(state)
         InboxCard(state, onIntent)
         Composer(state, onIntent)
+    }
+}
+
+/**
+ * The two things the app does, stated once at the top. Someone who only wants
+ * a HEIC turned into a JPG should not have to pair two devices to find out
+ * that they can.
+ */
+@Composable
+private fun ModeChoice(onConvertOnly: () -> Unit) {
+    val colors = KnoticTheme.colors
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        KnoticCard(
+            modifier = Modifier.weight(1f).semantics { selected = true },
+            contentPadding = PaddingValues(12.dp),
+        ) {
+            ModeLabel(Icons.Rounded.Share, colors.accentSoft, colors.accent, "Send & receive", "Between two devices")
+        }
+        KnoticCard(
+            modifier = Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).clickable(onClick = onConvertOnly),
+            contentPadding = PaddingValues(12.dp),
+        ) {
+            ModeLabel(Icons.Rounded.Transform, colors.violetSoft, colors.violet, "Convert only", "One device, no pairing", showArrow = true)
+        }
+    }
+}
+
+@Composable
+private fun ModeLabel(
+    icon: ImageVector,
+    background: Color,
+    tint: Color,
+    title: String,
+    subtitle: String,
+    showArrow: Boolean = false,
+) {
+    val colors = KnoticTheme.colors
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ToneBadge(icon, background, tint, size = 34.dp, rounded = false)
+        Column(Modifier.weight(1f)) {
+            Text(title, color = colors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(subtitle, color = colors.textMuted, fontSize = 11.sp, maxLines = 1)
+        }
+        if (showArrow) {
+            Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = colors.textFaint, modifier = Modifier.size(16.dp))
+        }
     }
 }
 

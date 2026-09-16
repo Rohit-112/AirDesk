@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
     spec.name                     = 'shared'
-    spec.version                  = '1.0.1'
+    spec.version                  = '1.2.0'
     spec.homepage                 = 'https://getknotic.web.app'
     spec.source                   = { :http=> ''}
     spec.authors                  = ''
@@ -9,8 +9,10 @@ Pod::Spec.new do |spec|
     spec.vendored_frameworks      = 'build/cocoapods/framework/Shared.framework'
     spec.libraries                = 'c++'
     spec.ios.deployment_target    = '15.0'
+    spec.dependency 'FirebaseAnalytics'
     spec.dependency 'FirebaseAuth'
     spec.dependency 'FirebaseCore'
+    spec.dependency 'FirebaseCrashlytics'
     spec.dependency 'FirebaseDatabase'
     spec.dependency 'FirebaseStorage'
     spec.dependency 'WebRTC-SDK', '125.6422.07'

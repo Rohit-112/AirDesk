@@ -40,4 +40,8 @@ class FirebaseSignalingRepository : SignalingRepository {
         inbox(code, SessionRole.HOST).removeValue()
         inbox(code, SessionRole.GUEST).removeValue()
     }
+
+    override suspend fun clearInbox(code: String, role: SessionRole) {
+        inbox(code, role).removeValue()
+    }
 }

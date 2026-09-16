@@ -1,5 +1,10 @@
 package com.share.app.domain.session
 
+import com.share.app.domain.analytics.AnalyticsEvent
+import com.share.app.domain.analytics.AnalyticsLogger
+import com.share.app.domain.analytics.FileRoute
+import com.share.app.domain.media.DetectedFileType
+import com.share.app.domain.media.FileTypes
 import com.share.app.domain.model.ActiveFileTransfer
 import com.share.app.domain.model.HistoryAction
 import com.share.app.domain.model.HistoryItem
@@ -17,6 +22,7 @@ import com.share.app.util.currentTimeMillis
 import com.share.app.util.newId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +42,7 @@ internal data class TransferState(
 /** Uploads a file to Storage and announces it to the peer. */
 internal interface RelayPort {
     fun isAvailable(): Boolean
-    suspend fun send(file: OutgoingFile, bytes: ByteArray, onProgress: (Long) -> Unit)
+    suspend fun send(file: OutgoingFile, bytes: ByteArray, contentType: String, onProgress: (Long) -> Unit)
 }
 
 /**
@@ -51,13 +57,19 @@ internal class FileTransferEngine(
     private val getChannel: () -> DataChannelPort?,
     private val relay: RelayPort,
     private val history: HistoryRepository,
+    private val previews: FilePreviews,
+    private val analytics: AnalyticsLogger,
     private val onIncomingFile: (IncomingFile) -> Unit,
     private val onError: (String) -> Unit,
     private val onPeerDisconnect: () -> Unit,
     private val canStillConnect: () -> Boolean,
     private val clock: () -> Long = ::currentTimeMillis,
 ) {
-    private class IncomingTransfer(val name: String) {
+    private class IncomingTransfer(
+        val name: String,
+        /** What the sender said to expect, when it said anything. */
+        val expectedBytes: Long?,
+    ) {
         var receivedBytes = 0L
         val chunks = ArrayList<ByteArray>()
         var ignore = false
@@ -71,6 +83,10 @@ internal class FileTransferEngine(
     private var incoming: IncomingTransfer? = null
     private var lastIncomingProgressAt = 0L
 
+    /** Announced by a `SIZE:` frame, and claimed by the `NAME:` frame after it. */
+    private var announcedSize: Long? = null
+    private var stallJob: Job? = null
+
     init {
         scope.launch {
             for (message in inbox) handleChannelMessage(message)
@@ -83,16 +99,42 @@ internal class FileTransferEngine(
     }
 
     fun resetTransfers() {
+        clearStallTimer()
+        announcedSize = null
         outgoingActive = false
         incoming?.chunks?.clear()
         incoming = null
         _state.value = TransferState()
     }
 
+    private fun clearStallTimer() {
+        stallJob?.cancel()
+        stallJob = null
+    }
+
+    /** Restarted on every chunk; only a silent channel ever reaches the end of it. */
+    private fun armStallTimer() {
+        clearStallTimer()
+        stallJob = scope.launch {
+            delay(SessionLimits.INCOMING_STALL_TIMEOUT_MS)
+            stallJob = null
+            if (incoming == null) return@launch
+            resetTransfers()
+            onError("The incoming file stopped arriving. Ask the other device to send it again.")
+        }
+    }
+
     private fun finishIncoming(transfer: IncomingTransfer) {
         if (transfer.ignore) return
         if (transfer.receivedBytes > SessionLimits.MAX_FILE_SIZE) {
             onError("Incoming file exceeds 20 MB limit.")
+            return
+        }
+        // A sender that announced a size and then stopped short sent a broken
+        // file; saving it as though it were whole is worse than saying so.
+        if (transfer.expectedBytes != null && transfer.receivedBytes != transfer.expectedBytes) {
+            analytics.log(AnalyticsEvent.FileIncomplete)
+            onError("The file arrived incomplete. Ask the other device to send it again.")
             return
         }
 
@@ -103,6 +145,8 @@ internal class FileTransferEngine(
             offset += chunk.size
         }
 
+        // The channel carries only the name, so the type is read from the bytes.
+        val detected = FileTypes.detect(transfer.name, head = bytes)
         val id = newId("file")
         val size = bytes.size.toLong()
         history.add(
@@ -114,6 +158,7 @@ internal class FileTransferEngine(
                 size = size,
                 status = HistoryStatus.SUCCESS,
                 hasPayload = true,
+                contentType = detected.mimeType,
             ),
             payload = bytes,
         )
@@ -121,10 +166,12 @@ internal class FileTransferEngine(
             IncomingFile(
                 name = transfer.name,
                 size = size,
-                contentType = SessionLimits.guessContentType(transfer.name),
+                contentType = detected.mimeType,
                 localFileId = id,
             ),
         )
+        previews.attach(id, bytes, detected.mimeType, forInbox = true)
+        analytics.log(AnalyticsEvent.FileReceived(FileRoute.DIRECT, detected.kind))
     }
 
     private fun handleChannelMessage(message: ChannelMessage) {
@@ -140,8 +187,15 @@ internal class FileTransferEngine(
             return
         }
 
+        val size = FileTransferProtocol.parseFileSizeMessage(data)
+        if (size != null) {
+            announcedSize = size
+            return
+        }
+
         if (data == FileTransferProtocol.END_MESSAGE) {
             val transfer = incoming ?: return
+            clearStallTimer()
             finishIncoming(transfer)
             transfer.chunks.clear()
             incoming = null
@@ -155,9 +209,14 @@ internal class FileTransferEngine(
             return
         }
 
-        incoming = IncomingTransfer(fileName)
+        val expected = announcedSize
+        announcedSize = null
+        incoming = IncomingTransfer(fileName, expected)
         lastIncomingProgressAt = 0L
-        _state.update { it.copy(incoming = ActiveFileTransfer(fileName, progress = 0, transferredBytes = 0)) }
+        armStallTimer()
+        _state.update {
+            it.copy(incoming = ActiveFileTransfer(fileName, progress = 0, transferredBytes = 0, size = expected))
+        }
     }
 
     private fun handleChunk(bytes: ByteArray) {
@@ -173,13 +232,16 @@ internal class FileTransferEngine(
         }
 
         transfer.chunks += bytes
+        armStallTimer()
 
         // Publishing per chunk would starve the transfer itself; throttle it.
         val now = clock()
         if (now - lastIncomingProgressAt >= PROGRESS_UPDATE_INTERVAL_MS) {
             lastIncomingProgressAt = now
+            val received = transfer.receivedBytes
+            val expected = transfer.expectedBytes
             _state.update {
-                it.copy(incoming = ActiveFileTransfer(transfer.name, progress = 0, transferredBytes = transfer.receivedBytes))
+                it.copy(incoming = ActiveFileTransfer(transfer.name, percentOf(received, expected), received, expected))
             }
         }
     }
@@ -193,7 +255,13 @@ internal class FileTransferEngine(
             onError("Another file transfer is already in progress.")
             return
         }
+        // Claimed here rather than after the wait below: a second file picked
+        // while the channel was still negotiating used to pass this guard too,
+        // and both then went down the same channel interleaved.
+        outgoingActive = true
+
         if (file.size > SessionLimits.MAX_FILE_SIZE) {
+            outgoingActive = false
             onError("File size exceeds the 20 MB limit.")
             return
         }
@@ -214,6 +282,7 @@ internal class FileTransferEngine(
         val relayAvailable = relay.isAvailable()
         if (!useChannel) {
             if (!relayAvailable) {
+                outgoingActive = false
                 onError(
                     "No direct connection to the other device, and the cloud relay is off. " +
                         "Put both devices on the same Wi-Fi and try again.",
@@ -221,6 +290,7 @@ internal class FileTransferEngine(
                 return
             }
             if (file.size > SessionLimits.MAX_RELAY_FILE_SIZE) {
+                outgoingActive = false
                 onError(
                     "No direct connection, so this would go through the cloud relay - which is limited to 5 MB. " +
                         "Put both devices on the same Wi-Fi to send the full 20 MB.",
@@ -229,22 +299,32 @@ internal class FileTransferEngine(
             }
         }
 
-        outgoingActive = true
-        _state.update { it.copy(outgoing = ActiveFileTransfer(file.name, progress = 0, transferredBytes = 0, size = file.size)) }
+        val route = if (useChannel) FileRoute.DIRECT else FileRoute.RELAY
+        _state.update {
+            it.copy(outgoing = ActiveFileTransfer(file.name, progress = 0, transferredBytes = 0, size = file.size))
+        }
 
+        // Until the bytes are read the name is all there is - so even the row
+        // for a file that could not be read says what it was.
+        var detected = FileTypes.detect(file.name, declaredType = file.contentType)
+        var bytes: ByteArray? = null
         try {
-            val bytes = file.readBytes()
+            val content = file.readBytes()
+            bytes = content
+            detected = FileTypes.detect(file.name, head = content, declaredType = file.contentType)
             if (openChannel != null) {
-                sendOverChannel(file, bytes, openChannel)
+                sendOverChannel(file, content, openChannel)
             } else {
-                relay.send(file, bytes) { transferred -> publishOutgoing(file, transferred) }
+                relay.send(file, content, detected.mimeType) { transferred -> publishOutgoing(file, transferred) }
             }
-            history.add(historyItem(file, HistoryAction.SENT_FILE, HistoryStatus.SUCCESS))
+            recordSent(file, detected, content, HistoryAction.SENT_FILE, HistoryStatus.SUCCESS)
+            analytics.log(AnalyticsEvent.FileSent(route, detected.kind))
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Throwable) {
-            AppLog.w(error) { "Sending ${file.name} failed" }
-            history.add(historyItem(file, HistoryAction.FAILED_UPLOAD, HistoryStatus.FAILED))
+            AppLog.w(error) { "Sending a file failed" }
+            recordSent(file, detected, bytes, HistoryAction.FAILED_UPLOAD, HistoryStatus.FAILED)
+            analytics.log(AnalyticsEvent.FileSendFailed(route))
             onError(
                 if (useChannel && relayAvailable) {
                     "Direct transfer failed. Try again to send it through the cloud relay."
@@ -259,6 +339,9 @@ internal class FileTransferEngine(
     }
 
     private suspend fun sendOverChannel(file: OutgoingFile, bytes: ByteArray, channel: DataChannelPort) {
+        // Sent before the name, so the receiver can tell a truncated file from a
+        // complete one. Anything that does not understand it ignores it.
+        check(channel.sendText(FileTransferProtocol.buildFileSizeMessage(bytes.size.toLong()))) { "Data channel send failed." }
         check(channel.sendText(FileTransferProtocol.buildFileNameMessage(file.name))) { "Data channel send failed." }
 
         var offset = 0
@@ -290,20 +373,38 @@ internal class FileTransferEngine(
     }
 
     private fun publishOutgoing(file: OutgoingFile, transferred: Long) {
-        val progress = if (file.size > 0) ((transferred.toDouble() / file.size) * 100).roundToInt() else 100
         _state.update {
-            it.copy(outgoing = ActiveFileTransfer(file.name, progress, transferred, file.size))
+            it.copy(outgoing = ActiveFileTransfer(file.name, percentOf(transferred, file.size), transferred, file.size))
         }
     }
 
-    private fun historyItem(file: OutgoingFile, action: HistoryAction, status: HistoryStatus) = HistoryItem(
-        id = newId("hist"),
-        action = action,
-        title = file.name,
-        timestampMillis = clock(),
-        size = file.size,
-        status = status,
-    )
+    private fun recordSent(
+        file: OutgoingFile,
+        detected: DetectedFileType,
+        bytes: ByteArray?,
+        action: HistoryAction,
+        status: HistoryStatus,
+    ) {
+        val id = newId("hist")
+        history.add(
+            HistoryItem(
+                id = id,
+                action = action,
+                title = file.name,
+                timestampMillis = clock(),
+                size = file.size,
+                status = status,
+                contentType = detected.mimeType,
+            ),
+        )
+        if (bytes != null) previews.attach(id, bytes, detected.mimeType, forInbox = false)
+    }
+
+    private fun percentOf(transferred: Long, total: Long?): Int = when {
+        total == null -> 0
+        total <= 0 -> 100
+        else -> ((transferred.toDouble() / total) * 100).roundToInt().coerceIn(0, 100)
+    }
 
     private companion object {
         const val BUFFERED_AMOUNT_LOW_THRESHOLD = 4L * 1024 * 1024

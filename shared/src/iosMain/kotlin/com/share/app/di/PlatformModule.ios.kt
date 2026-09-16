@@ -3,9 +3,15 @@
 package com.share.app.di
 
 import kotlinx.cinterop.ExperimentalForeignApi
+import com.share.app.data.analytics.FirebaseAnalyticsLogger
+import com.share.app.data.analytics.FirebaseCrashReporter
 import com.share.app.data.local.PREFERENCES_FILE_NAME
 import com.share.app.data.local.createPreferencesDataStore
+import com.share.app.data.media.UIKitImageProcessor
 import com.share.app.data.webrtc.WebRtcKmpPeerConnectionFactory
+import com.share.app.domain.analytics.AnalyticsLogger
+import com.share.app.domain.analytics.CrashReporter
+import com.share.app.domain.media.ImageProcessor
 import com.share.app.domain.repository.ClipboardRepository
 import com.share.app.domain.webrtc.PeerConnectionFactoryPort
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +27,9 @@ actual val platformModule: Module = module {
     single { createPreferencesDataStore { documentsPath() + "/" + PREFERENCES_FILE_NAME } }
     single<ClipboardRepository> { IosClipboardRepository() }
     single<PeerConnectionFactoryPort> { WebRtcKmpPeerConnectionFactory(get()) }
+    single<ImageProcessor> { UIKitImageProcessor() }
+    single<AnalyticsLogger> { FirebaseAnalyticsLogger() }
+    single<CrashReporter> { FirebaseCrashReporter() }
 }
 
 private fun documentsPath(): String {

@@ -80,8 +80,15 @@ internal class WebRtcTransport(
 
     fun channel(): DataChannelPort? = link?.channel()
 
+    /**
+     * Deliberately not gated on the signalling connection. A peer connection
+     * that is already up carries files on its own, and the database dropping
+     * for a moment - the app in the background, a network handover - used to
+     * tear the whole link down mid-transfer. The link defers its handshakes
+     * while signalling is offline, which is where that belongs.
+     */
     private val running: Boolean
-        get() = inputs.active && inputs.sessionCode.isNotEmpty() && inputs.signalingOnline
+        get() = inputs.active && inputs.sessionCode.isNotEmpty()
 
     private fun reconcile() {
         val key = EffectKey(restartToken, inputs.role, running, inputs.sessionCode)
@@ -112,6 +119,7 @@ internal class WebRtcTransport(
                 override suspend fun send(message: SignalingMessage) = signalingRepository.send(code, role, message)
                 override fun messages() = signalingRepository.observe(code, role)
                 override suspend fun clear() = signalingRepository.clear(code)
+                override suspend fun clearOwnInbox() = signalingRepository.clearInbox(code, role)
             },
             isSignalingOnline = { inputs.signalingOnline },
             fallbackAvailable = inputs.fallbackAvailable,
@@ -150,12 +158,7 @@ internal class WebRtcTransport(
         val isRunning = running
         _state.value = TransportState(
             status = if (isRunning) linkStatus else WebRtcStatus.IDLE,
-            error = when {
-                isRunning -> linkError
-                inputs.active && inputs.sessionCode.isNotEmpty() && !inputs.signalingOnline ->
-                    "Waiting for the signalling channel."
-                else -> null
-            },
+            error = if (isRunning) linkError else null,
             ready = isRunning && channelOpen,
             exhausted = isRunning && attemptsSpent,
             diagnostics = diagnostics,

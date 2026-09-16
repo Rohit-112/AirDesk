@@ -1,9 +1,17 @@
 [versions]
+# The release. Brand.kt and the iOS project have to say the same thing;
+# `./gradlew checkVersion` fails the build when they drift apart.
+app-version = "1.2.0"
+# Raised on every release: Android and iOS both refuse to install a build
+# over one with the same number.
+app-build = "2"
+
 # Build
 agp = "9.3.1"
 kotlin = "2.4.20"
 composeMultiplatform = "1.12.0"
 googleServices = "4.5.0"
+crashlyticsPlugin = "3.0.8"
 
 # Android SDK
 android-compileSdk = "37"
@@ -74,6 +82,10 @@ gitlive-firebase-app = { module = "dev.gitlive:firebase-app", version.ref = "git
 gitlive-firebase-auth = { module = "dev.gitlive:firebase-auth", version.ref = "gitliveFirebase" }
 gitlive-firebase-database = { module = "dev.gitlive:firebase-database", version.ref = "gitliveFirebase" }
 gitlive-firebase-storage = { module = "dev.gitlive:firebase-storage", version.ref = "gitliveFirebase" }
+# Android and iOS only: firebase-java-sdk has no analytics or crash reporting,
+# so desktop reports nothing.
+gitlive-firebase-analytics = { module = "dev.gitlive:firebase-analytics", version.ref = "gitliveFirebase" }
+gitlive-firebase-crashlytics = { module = "dev.gitlive:firebase-crashlytics", version.ref = "gitliveFirebase" }
 
 # WebRTC: webrtc-kmp on Android and iOS, webrtc-java on desktop
 webrtc-kmp = { module = "com.shepeliev:webrtc-kmp", version.ref = "webrtcKmp" }
@@ -99,3 +111,4 @@ kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", versio
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 googleServices = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "crashlyticsPlugin" }

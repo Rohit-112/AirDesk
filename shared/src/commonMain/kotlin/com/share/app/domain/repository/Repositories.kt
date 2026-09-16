@@ -1,5 +1,6 @@
 package com.share.app.domain.repository
 
+import com.share.app.domain.media.ImagePreview
 import com.share.app.domain.model.HistoryItem
 import com.share.app.domain.model.OutgoingFile
 import com.share.app.domain.model.SessionRole
@@ -68,6 +69,13 @@ interface SignalingRepository {
     /** Messages addressed to [role]. Each is deleted once read. */
     fun observe(code: String, role: SessionRole): Flow<SignalingMessage>
     suspend fun clear(code: String)
+
+    /**
+     * Empties only [role]'s own inbox. A fresh attempt wants its own leftovers
+     * gone, but wiping the peer's inbox as well throws away messages they have
+     * already sent and are waiting for us to read.
+     */
+    suspend fun clearInbox(code: String, role: SessionRole)
 }
 
 /** Cloud Storage handoff for files that cannot go peer to peer. */
@@ -90,11 +98,17 @@ interface HistoryRepository {
     val history: StateFlow<List<HistoryItem>>
     fun add(item: HistoryItem, payload: ByteArray? = null)
     fun payload(id: String): ByteArray?
+
+    /**
+     * Attaches a picture drawn after the row was logged. Does nothing if the
+     * row has already fallen out of the log.
+     */
+    fun setThumbnail(id: String, thumbnail: ImagePreview)
 }
 
 interface FileSystemRepository {
-    /** Null when the user cancels. */
-    suspend fun pickFile(): OutgoingFile?
+    /** Null when the user cancels. [imagesOnly] narrows the picker to pictures. */
+    suspend fun pickFile(imagesOnly: Boolean = false): OutgoingFile?
 
     /** False when the user cancels. */
     suspend fun saveFile(name: String, bytes: ByteArray): Boolean

@@ -1,9 +1,16 @@
 package com.share.app.domain.session
 
 import com.share.app.config.AppConfig
+import com.share.app.domain.analytics.AnalyticsEvent
+import com.share.app.domain.analytics.AnalyticsLogger
+import com.share.app.domain.analytics.FileRoute
+import com.share.app.domain.analytics.JoinMethod
 import com.share.app.domain.crypto.SessionCipher
 import com.share.app.domain.crypto.SessionKeyPair
 import com.share.app.domain.crypto.SharedSessionKey
+import com.share.app.domain.media.FileTypes
+import com.share.app.domain.media.ImagePreview
+import com.share.app.domain.media.SerialImageProcessor
 import com.share.app.domain.model.AppSessionState
 import com.share.app.domain.model.AuthStatus
 import com.share.app.domain.model.HistoryAction
@@ -39,6 +46,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -75,6 +83,8 @@ class SessionEngine(
     private val historyRepository: HistoryRepository,
     private val fileSystemRepository: FileSystemRepository,
     peerConnectionFactory: PeerConnectionFactoryPort,
+    imageProcessor: SerialImageProcessor,
+    private val analytics: AnalyticsLogger,
 ) {
     private val dispatcher = Dispatchers.Default.limitedParallelism(1)
     private val scope = CoroutineScope(
@@ -97,13 +107,35 @@ class SessionEngine(
     private var lastReceived: String? = null
     private var inactivityJob: Job? = null
 
+    /** Whether anyone has joined the hosted session, for the guest slot grace. */
+    private var hadGuest = false
+
     // End to end key material. The private key never leaves the cipher, and the
     // derived key is never written anywhere.
     private var keyPair: SessionKeyPair? = null
     private var peerPublicKey: String? = null
     private var sharedKey: SharedSessionKey? = null
     private var keyGeneration = 0
+
+    /**
+     * Ciphertext that arrived before the key that opens it, or under a key that
+     * has since been replaced. The database only notifies on change, so a value
+     * that could not be read has to be held and retried, or it is lost for good.
+     */
     private var pendingIncoming: Pair<String, Boolean>? = null
+
+    /** Successful key agreements with the current peer. */
+    private var keyEpoch = 0
+
+    /** The last text this device sent to the current peer, to re-send under a new key. */
+    private var lastSentText: String? = null
+
+    private val previews = FilePreviews(
+        scope = scope,
+        processor = imageProcessor,
+        history = historyRepository,
+        onInboxPreview = { localFileId, preview -> attachInboxPreview(localFileId, preview) },
+    )
 
     private val transport = WebRtcTransport(
         scope = scope,
@@ -118,10 +150,12 @@ class SessionEngine(
         getChannel = { transport.channel() },
         relay = object : RelayPort {
             override fun isAvailable(): Boolean = relayAvailable()
-            override suspend fun send(file: OutgoingFile, bytes: ByteArray, onProgress: (Long) -> Unit) =
-                relaySend(file, bytes, onProgress)
+            override suspend fun send(file: OutgoingFile, bytes: ByteArray, contentType: String, onProgress: (Long) -> Unit) =
+                relaySend(file, bytes, contentType, onProgress)
         },
         history = historyRepository,
+        previews = previews,
+        analytics = analytics,
         onIncomingFile = { file -> core.update { it.copy(incomingFile = file, incomingText = null) } },
         onError = ::setError,
         onPeerDisconnect = { transport.restart() },
@@ -163,7 +197,9 @@ class SessionEngine(
                 }
             }
             launch { syncTransportInputs() }
-            launch { keepHostRemovalRegistered() }
+            launch { keepDisconnectCleanupOwned() }
+            launch { releaseAbandonedGuestSlot() }
+            launch { reportLinks() }
             launch { driveInactivityTimer() }
         }
     }
@@ -200,7 +236,7 @@ class SessionEngine(
         if (deepLink != null) {
             pendingDeepLinkCode = null
             autoHosted = true
-            scope.launch { joinReplacingCurrent(deepLink) }
+            scope.launch { joinReplacingCurrent(deepLink, JoinMethod.LINK) }
             return
         }
         if (autoHosted) return
@@ -220,23 +256,103 @@ class SessionEngine(
         }.distinctUntilChanged().collect { transport.update(it) }
     }
 
+    private data class CleanupInputs(
+        val status: SessionStatus,
+        val code: String,
+        val role: SessionRole,
+        val backendConnected: Boolean,
+        val peerOnline: Boolean,
+    )
+
     /**
-     * The host's session dies with the host. onDisconnect handlers are dropped
-     * once they fire, so this re-registers whenever the socket comes back.
+     * Who cleans up when this device's socket closes, decided by whether anyone
+     * else is still here. The server runs these even if the app is killed,
+     * which is the only cleanup that can be relied on - and it drops them once
+     * they fire, so this re-registers whenever the socket comes back.
+     *
+     * Alone in the session - a code nobody used, or the last one left after the
+     * other device went - this device takes the whole node with it. The
+     * presence writes are cancelled first: the server runs every registered
+     * operation, and a presence write landing after the delete would recreate
+     * the node as an empty shell.
+     *
+     * With the other device present the node has to outlive this one, so all
+     * this device does is mark itself gone - and the other device, now alone,
+     * takes over the cleanup. That is what lets a browser peer move to another
+     * page of the site without the session dying under it.
+     *
+     * Each branch is two round trips and the peer can come or go in between;
+     * collectLatest abandons a stale run at its next suspension, as the web
+     * client's `cancelled` flag does.
      */
-    private suspend fun keepHostRemovalRegistered() {
-        core.map { listOf(it.role, it.sessionStatus, it.sessionCode, it.backendConnected) }
+    private suspend fun keepDisconnectCleanupOwned() {
+        core.map { CleanupInputs(it.sessionStatus, it.sessionCode, it.role, it.backendConnected, it.peerOnline) }
             .distinctUntilChanged()
-            .collect {
-                val session = core.value
-                if (session.role == SessionRole.HOST &&
-                    session.sessionStatus == SessionStatus.CONNECTED &&
-                    session.sessionCode.isNotEmpty() &&
-                    session.backendConnected
-                ) {
-                    suspendRunCatching { sessionRepository.registerSessionRemovalOnDisconnect(session.sessionCode) }
+            .collectLatest { inputs ->
+                if (inputs.status != SessionStatus.CONNECTED || inputs.code.isEmpty() || !inputs.backendConnected) {
+                    return@collectLatest
+                }
+                if (inputs.peerOnline) {
+                    suspendRunCatching { sessionRepository.cancelSessionRemovalOnDisconnect(inputs.code) }
+                    suspendRunCatching { sessionRepository.registerDisconnectCleanup(inputs.code, inputs.role) }
+                } else {
+                    suspendRunCatching { sessionRepository.cancelDisconnectCleanup(inputs.code, inputs.role) }
+                    suspendRunCatching { sessionRepository.registerSessionRemovalOnDisconnect(inputs.code) }
                 }
             }
+    }
+
+    private data class GuestSlotInputs(
+        val role: SessionRole,
+        val status: SessionStatus,
+        val code: String,
+        val peerOnline: Boolean,
+    )
+
+    /**
+     * A guest leaves its id behind when it drops off, and the rules refuse
+     * every other device once both slots are filled - so the code would be dead
+     * until the host made a new one. After a grace period the host hands the
+     * slot back.
+     */
+    private suspend fun releaseAbandonedGuestSlot() {
+        core.map { GuestSlotInputs(it.role, it.sessionStatus, it.sessionCode, it.peerOnline) }
+            .distinctUntilChanged()
+            .collectLatest { inputs ->
+                if (inputs.peerOnline) {
+                    hadGuest = true
+                    return@collectLatest
+                }
+                if (inputs.role != SessionRole.HOST || inputs.status != SessionStatus.CONNECTED) return@collectLatest
+                if (inputs.code.isEmpty() || !hadGuest) return@collectLatest
+
+                delay(SessionLimits.GUEST_SLOT_GRACE_MS)
+                if (activeSessionCode != inputs.code) return@collectLatest
+                hadGuest = false
+
+                // Whoever joins next is a different device, so nothing agreed
+                // with the last one may carry over to it - least of all the
+                // last message, which would otherwise be re-sent to the stranger.
+                forgetPeerKey()
+                suspendRunCatching {
+                    sessionRepository.updateSession(
+                        inputs.code,
+                        mapOf(
+                            "guestId" to null,
+                            "guestDeviceId" to null,
+                            "guestOnline" to null,
+                            "guestClipboard" to null,
+                            "guestPublicKey" to null,
+                        ),
+                    )
+                }
+            }
+    }
+
+    private suspend fun reportLinks() {
+        core.map { it.isLinked }.distinctUntilChanged().collect { linked ->
+            if (linked) analytics.log(AnalyticsEvent.DevicesLinked(hosting = core.value.role == SessionRole.HOST))
+        }
     }
 
     private suspend fun driveInactivityTimer() {
@@ -300,8 +416,8 @@ class SessionEngine(
     }
 
     /** Join someone else's session, leaving the current one first. */
-    fun joinSession(code: String) {
-        scope.launch { joinReplacingCurrent(code) }
+    fun joinSession(code: String, method: JoinMethod = JoinMethod.CODE) {
+        scope.launch { joinReplacingCurrent(code, method) }
     }
 
     /** A code that arrived from outside the app: a scanned link or a launch intent. */
@@ -310,7 +426,7 @@ class SessionEngine(
         scope.launch {
             autoHosted = true
             if (core.value.authStatus == AuthStatus.READY) {
-                joinReplacingCurrent(code)
+                joinReplacingCurrent(code, JoinMethod.LINK)
             } else {
                 pendingDeepLinkCode = code
             }
@@ -322,8 +438,9 @@ class SessionEngine(
     }
 
     /**
-     * Called the moment someone reaches for the join field. Their own session is
-     * about to be abandoned, so delete it now rather than leaving it to expire.
+     * Called the moment someone starts typing someone else's code. Their own
+     * session is about to be abandoned, so delete it now rather than leaving it
+     * to expire.
      */
     fun beginJoin() {
         scope.launch {
@@ -374,6 +491,12 @@ class SessionEngine(
             .onFailure { setError("Unable to save the file.") }
     }
 
+    /**
+     * The bytes of a received file that is still held - by its activity row id,
+     * which is also the inbox file's local id. Null once it has been let go.
+     */
+    suspend fun heldFile(id: String): ByteArray? = withContext(dispatcher) { historyRepository.payload(id) }
+
     /** Best effort, for a desktop window closing. Mobile relies on onDisconnect. */
     suspend fun shutdown() {
         withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) {
@@ -388,10 +511,10 @@ class SessionEngine(
      * Pairing
      * ------------------------------------------------------------------ */
 
-    private suspend fun joinReplacingCurrent(code: String) {
+    private suspend fun joinReplacingCurrent(code: String, method: JoinMethod) {
         pairingMutex.withLock {
             if (core.value.sessionStatus == SessionStatus.CONNECTED) disconnectLocked()
-            joinSessionLocked(code)
+            joinSessionLocked(code, method)
         }
     }
 
@@ -455,7 +578,7 @@ class SessionEngine(
         }
     }
 
-    private suspend fun joinSessionLocked(overrideCode: String) {
+    private suspend fun joinSessionLocked(overrideCode: String, method: JoinMethod) {
         val session = core.value
         val userId = session.userId
         if (session.authStatus != AuthStatus.READY || userId == null) {
@@ -506,6 +629,7 @@ class SessionEngine(
 
             attachSessionListener(code, SessionRole.GUEST)
             core.update { it.copy(sessionStatus = SessionStatus.CONNECTED) }
+            analytics.log(AnalyticsEvent.SessionJoined(method))
         }.onFailure { error ->
             AppLog.e(error) { "joinSession failed" }
             failPairing("Unable to join session right now.")
@@ -534,13 +658,38 @@ class SessionEngine(
                 // already detached - the path taken when joining another device.
                 sessionRepository.removeSession(code)
             } else {
-                clearRemotePresence()
-                attemptDeleteSessionIfInactive()
+                leaveAsGuest()
             }
         }.onFailure { setError("Unable to clear session data.") }
 
         core.update { it.copy(sessionCode = "") }
         resetLocalConnection()
+    }
+
+    /**
+     * A guest that leaves gives its slot back. Leaving it claimed locks the
+     * code: the rules then refuse every other device that tries to join.
+     *
+     * If the host has already gone, the whole node goes instead - and that has
+     * to happen first, while this device still holds the slot, because the
+     * rules stop letting it delete anything the moment it lets go.
+     */
+    private suspend fun leaveAsGuest() {
+        val code = activeSessionCode ?: return
+        val existing = suspendRunCatching { sessionRepository.getSession(code) }.getOrNull()
+        if (existing != null && !existing.hostOnline) {
+            sessionRepository.removeSession(code)
+            return
+        }
+        sessionRepository.updateSession(
+            code,
+            mapOf(
+                "guestId" to null,
+                "guestDeviceId" to null,
+                "guestOnline" to null,
+                "guestClipboard" to null,
+            ),
+        )
     }
 
     private suspend fun handleInactivityLocked() {
@@ -564,6 +713,7 @@ class SessionEngine(
         }.isFailure
 
         resetLocalConnection()
+        analytics.log(AnalyticsEvent.SessionTimedOut)
         setError(
             if (cleanupFailed) {
                 "Session closed after 15 minutes of inactivity (cleanup failed)."
@@ -584,10 +734,15 @@ class SessionEngine(
         cancelInactivityTimer()
     }
 
+    /**
+     * Going offline, written the way the server-side cleanup writes it: fields
+     * removed rather than blanked. A blanked field would recreate the session
+     * node if the other device had just deleted it, and there is no timestamp
+     * for the same reason - leaving is not activity.
+     */
     private fun buildPresenceUpdate(role: SessionRole): Map<String, Any?> = mapOf(
-        "${role.key}Online" to false,
-        "${role.key}Clipboard" to "",
-        "updatedAt" to currentTimeMillis(),
+        "${role.key}Online" to null,
+        "${role.key}Clipboard" to null,
     )
 
     private suspend fun clearRemotePresence() {
@@ -614,14 +769,22 @@ class SessionEngine(
     private fun resetSessionKeys() {
         keyGeneration += 1
         keyPair = null
+        forgetPeerKey()
+    }
+
+    /** Everything agreed with one particular peer. Our own key pair survives. */
+    private fun forgetPeerKey() {
         peerPublicKey = null
         sharedKey = null
         pendingIncoming = null
+        keyEpoch = 0
+        lastSentText = null
         core.update { it.copy(secureChannelReady = false) }
     }
 
     private fun attachSessionListener(code: String, role: SessionRole) {
         activeSessionCode = code
+        hadGuest = false
         listenersJob?.cancel()
         listenerGeneration += 1
         val generation = listenerGeneration
@@ -650,7 +813,15 @@ class SessionEngine(
             // signalling traffic underneath it never reaches this client.
             launch {
                 sessionRepository.observeString(code, "hostId").collect { hostId ->
-                    if (hostId == null) scope.launch { onHostGone(generation, role) }
+                    if (hostId == null) {
+                        // The session has been deleted. Our own pending cleanup
+                        // writes would recreate it as a shell when this device
+                        // drops off, so they are dropped first.
+                        scope.launch {
+                            suspendRunCatching { sessionRepository.cancelDisconnectCleanup(code, role) }
+                            onHostGone(generation, role)
+                        }
+                    }
                 }
             }
             launch {
@@ -675,8 +846,8 @@ class SessionEngine(
                 }
             }
         }
-
-        scope.launch { suspendRunCatching { sessionRepository.registerDisconnectCleanup(code, role) } }
+        // Which disconnect cleanup this device owns is decided by
+        // keepDisconnectCleanupOwned, which knows whether the peer is here.
     }
 
     /** The session node lost its host: deleted by the other device or by the server. */
@@ -703,14 +874,18 @@ class SessionEngine(
         val peerKey = peerPublicKey ?: return
         suspendRunCatching { cipher.deriveSharedKey(pair, peerKey) }
             .onSuccess { key ->
-                if (generation != keyGeneration) return
+                if (generation != keyGeneration || peerKey != peerPublicKey) return
                 sharedKey = key
+                keyEpoch += 1
                 core.update { it.copy(secureChannelReady = true) }
-                // A message that landed before the key existed can be opened now.
+
+                // A message that landed before this key existed - or under the
+                // key the peer used before it rebuilt its half - can be opened now.
                 pendingIncoming?.let { (value, record) ->
                     pendingIncoming = null
                     handleIncoming(value, record)
                 }
+                if (keyEpoch >= 2) republishLastSent(key)
             }
             .onFailure { error ->
                 if (generation != keyGeneration) return
@@ -721,6 +896,22 @@ class SessionEngine(
             }
     }
 
+    /**
+     * The peer rebuilt its half of the exchange - a browser that moved to
+     * another page of the site does - so whatever this side sent before is
+     * ciphertext it can no longer open. The last message is published again
+     * under the new key rather than being lost.
+     */
+    private suspend fun republishLastSent(key: SharedSessionKey) {
+        val text = lastSentText ?: return
+        val code = activeSessionCode ?: return
+        val encrypted = cipher.encrypt(key, text) ?: return
+        if (sharedKey !== key || activeSessionCode != code) return
+        suspendRunCatching {
+            sessionRepository.updateSession(code, mapOf("${core.value.role.key}Clipboard" to encrypted))
+        }
+    }
+
     private suspend fun handleIncoming(encrypted: String, recordHistory: Boolean) {
         val key = sharedKey
         if (key == null) {
@@ -728,12 +919,16 @@ class SessionEngine(
             return
         }
 
-        // Null is expected right after a key rotation: a message encrypted with
-        // the previous key is still sitting in the database.
-        val decrypted = cipher.decrypt(key, encrypted) ?: run {
-            AppLog.w { "Ignoring a payload that this session's key cannot open." }
+        val decrypted = cipher.decrypt(key, encrypted)
+        if (decrypted == null) {
+            // Written under a key that is no longer current, which is what the
+            // other device looks like just after it rebuilt its half. Kept for
+            // the next agreement instead of losing the message.
+            pendingIncoming = encrypted to recordHistory
+            AppLog.w { "Holding a payload that this session's key cannot open." }
             return
         }
+        pendingIncoming = null
         if (decrypted.isEmpty()) return
 
         if (decrypted.startsWith(FilePayload.PREFIX)) {
@@ -802,6 +997,9 @@ class SessionEngine(
                     "updatedAt" to currentTimeMillis(),
                 ),
             )
+            // Kept so it can be re-sent under a new key if the peer rebuilds
+            // its half of the exchange.
+            lastSentText = trimmed
             historyRepository.add(
                 HistoryItem(
                     id = newId("hist"),
@@ -813,6 +1011,7 @@ class SessionEngine(
                     text = trimmed,
                 ),
             )
+            analytics.log(AnalyticsEvent.TextSent)
         }.onFailure { error ->
             AppLog.e(error) { "sendText failed" }
             setError("Unable to send text right now.")
@@ -825,15 +1024,17 @@ class SessionEngine(
      * Files that cannot go peer to peer are uploaded to Storage and announced
      * over the session node, in the same shape the web client uses.
      */
-    private suspend fun relaySend(file: OutgoingFile, bytes: ByteArray, onProgress: (Long) -> Unit) {
+    private suspend fun relaySend(file: OutgoingFile, bytes: ByteArray, contentType: String, onProgress: (Long) -> Unit) {
         val code = activeSessionCode ?: error("No active session to relay through.")
         val role = core.value.role
-        val path = "sessions/$code/${currentTimeMillis()}-${SessionLimits.safeFileName(file.name)}"
+        // Random, never the file name: the object name is what keeps a relayed
+        // file private, since Storage rules cannot tell who is in the session.
+        val path = "sessions/$code/${SessionLimits.createObjectName()}"
 
-        relayRepository.upload(path, bytes, file.contentType, onProgress)
+        relayRepository.upload(path, bytes, contentType, onProgress)
 
         val key = sharedKey ?: error("The secure channel is not ready yet.")
-        val payload = FilePayload.build(path, file.name, file.size, file.contentType)
+        val payload = FilePayload.build(path, file.name, file.size, contentType)
         val encrypted = cipher.encrypt(key, FilePayload.PREFIX + payload)
             ?: error("Unable to encrypt the file announcement.")
 
@@ -857,7 +1058,7 @@ class SessionEngine(
                 return
             }
             suspendRunCatching { fileSystemRepository.saveFile(file.name, bytes) }
-                .onSuccess { saved -> if (saved) clearIncomingFile(file) }
+                .onSuccess { saved -> if (saved) clearIncomingFile(localId) }
                 .onFailure { setError("Unable to download the incoming file.") }
             return
         }
@@ -868,6 +1069,8 @@ class SessionEngine(
 
         suspendRunCatching {
             val bytes = relayRepository.download(storagePath, SessionLimits.MAX_FILE_SIZE)
+            // The sender announced a type; the bytes are what actually arrived.
+            val detected = FileTypes.detect(file.name, head = bytes, declaredType = file.contentType)
             val id = newId("file")
             historyRepository.add(
                 HistoryItem(
@@ -878,27 +1081,46 @@ class SessionEngine(
                     size = bytes.size.toLong(),
                     status = HistoryStatus.SUCCESS,
                     hasPayload = true,
+                    contentType = detected.mimeType,
                 ),
                 payload = bytes,
             )
+            analytics.log(AnalyticsEvent.FileReceived(FileRoute.RELAY, detected.kind))
 
             suspendRunCatching { relayRepository.delete(storagePath) }
+            // Removed rather than blanked: by now the other device may have
+            // deleted the session, and a write would rebuild it as a shell
+            // nobody ever cleans up.
             val peerField = "${core.value.role.peer.key}Clipboard"
-            sessionRepository.updateSession(code, mapOf(peerField to "", "updatedAt" to currentTimeMillis()))
+            sessionRepository.updateSession(code, mapOf(peerField to null, "updatedAt" to currentTimeMillis()))
 
             // Now held locally, so a cancelled save dialog can simply be retried.
-            val local = file.copy(storagePath = null, localFileId = id, size = bytes.size.toLong())
+            val local = file.copy(
+                storagePath = null,
+                localFileId = id,
+                size = bytes.size.toLong(),
+                contentType = detected.mimeType,
+            )
             core.update { it.copy(incomingFile = local) }
+            previews.attach(id, bytes, detected.mimeType, forInbox = true)
 
-            if (fileSystemRepository.saveFile(file.name, bytes)) clearIncomingFile(local)
+            if (fileSystemRepository.saveFile(file.name, bytes)) clearIncomingFile(id)
         }.onFailure { error ->
             AppLog.e(error) { "Downloading the relayed file failed" }
             setError("Unable to download the incoming file.")
         }
     }
 
-    private fun clearIncomingFile(file: IncomingFile) {
-        core.update { if (it.incomingFile == file) it.copy(incomingFile = null) else it }
+    /** Matched by id: the inbox entry may have gained its preview in the meantime. */
+    private fun clearIncomingFile(localFileId: String) {
+        core.update { if (it.incomingFile?.localFileId == localFileId) it.copy(incomingFile = null) else it }
+    }
+
+    private fun attachInboxPreview(localFileId: String, preview: ImagePreview) {
+        core.update { state ->
+            val current = state.incomingFile
+            if (current?.localFileId == localFileId) state.copy(incomingFile = current.copy(preview = preview)) else state
+        }
     }
 
     private fun setError(message: String) {

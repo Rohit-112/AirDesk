@@ -3,12 +3,14 @@ package com.share.app.ui.home
 import com.share.app.base.UiEffect
 import com.share.app.base.UiIntent
 import com.share.app.base.UiState
+import com.share.app.domain.media.ImageFormat
 import com.share.app.domain.model.AppSessionState
 import com.share.app.domain.model.AuthStatus
 import com.share.app.domain.model.HistoryItem
 import com.share.app.domain.model.OutgoingFile
 import com.share.app.domain.model.SessionStatus
 import com.share.app.domain.policy.SessionLimits
+import com.share.app.ui.convert.ConversionState
 import com.share.app.ui.platform.isQrScanSupported
 
 data class HomeUiState(
@@ -31,6 +33,10 @@ data class HomeUiState(
     val isActivityExpanded: Boolean = false,
     val isDraggingFile: Boolean = false,
     val canScan: Boolean = isQrScanSupported,
+    /** The one "Save as" in progress or just finished, and which file it is for. */
+    val conversion: ConversionState = ConversionState(),
+    /** The activity row whose "Save as" panel is open. */
+    val convertPanelId: String? = null,
 ) : UiState {
     val linked: Boolean get() = session.isLinked
 
@@ -52,7 +58,6 @@ data class HomeUiState(
 sealed interface HomeIntent : UiIntent {
     /* Pairing */
     data class JoinCodeChanged(val value: String) : HomeIntent
-    data object JoinFieldFocused : HomeIntent
     data object CancelJoin : HomeIntent
     data object NewCodeClicked : HomeIntent
     data object DisconnectClicked : HomeIntent
@@ -77,6 +82,13 @@ sealed interface HomeIntent : UiIntent {
     data class SaveHistoryFile(val id: String) : HomeIntent
     data object ToggleActivityExpanded : HomeIntent
 
+    /* Converting */
+    data class ConvertIncomingFile(val format: ImageFormat) : HomeIntent
+    data class ConvertHistoryFile(val id: String, val format: ImageFormat) : HomeIntent
+    data class ToggleConvertPanel(val id: String) : HomeIntent
+    data object SaveConvertedAgain : HomeIntent
+    data object ConvertOnlyClicked : HomeIntent
+
     /* Connection detail */
     data object ToggleAdvanced : HomeIntent
     data object ToggleConnectionDetail : HomeIntent
@@ -90,4 +102,5 @@ sealed interface HomeIntent : UiIntent {
 
 sealed interface HomeEffect : UiEffect {
     data object NavigateToAbout : HomeEffect
+    data object NavigateToConvert : HomeEffect
 }

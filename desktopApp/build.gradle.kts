@@ -43,7 +43,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Knotic"
-            packageVersion = "1.0.1"
+            packageVersion = libs.versions.app.version.get()
             description = "Send files and text between your devices"
             vendor = "Knotic"
 

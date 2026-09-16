@@ -32,6 +32,9 @@ internal interface SignalingPort {
     suspend fun send(message: SignalingMessage)
     fun messages(): Flow<SignalingMessage>
     suspend fun clear()
+
+    /** Empties this side's own inbox, leaving anything the peer is waiting on. */
+    suspend fun clearOwnInbox()
 }
 
 internal interface WebRtcLinkCallbacks {
@@ -161,8 +164,16 @@ internal class WebRtcLink(
         callbacks.onChannelStateChange(false)
     }
 
-    private fun failAttempt(kind: FailureKind) {
+    /**
+     * [requireLiveAttempt] is what stops a second failure for the same attempt
+     * - a timeout firing while a setup call is still in flight - from burning a
+     * retry and starting a second attempt in parallel: closeAttempt() has
+     * already cleared [peer] by then. Only a peer connection that could not be
+     * created at all fails without one.
+     */
+    private fun failAttempt(kind: FailureKind, requireLiveAttempt: Boolean = true) {
         if (stopped) return
+        if (requireLiveAttempt && peer == null) return
 
         val wasConnected = everConnected
         closeAttempt(notifyPeer = false)
@@ -377,10 +388,18 @@ internal class WebRtcLink(
             is SignalingMessage.Disconnect -> {
                 val id = connectionId
                 if (message.connectionId != null && id != null && message.connectionId != id) return
-                // The peer left deliberately. Close this attempt but keep the link
-                // alive so a later handshake from them can still land.
+                // The peer left deliberately. Closing the attempt also drops the
+                // signalling listener, so a new attempt has to be opened - or
+                // their next handshake would never be heard and this side would
+                // sit idle for good.
                 closeAttempt(notifyPeer = false)
                 emitStatus(WebRtcStatus.IDLE, null)
+                retryJob?.cancel()
+                retryJob = scope.launch {
+                    delay(ConnectionPolicy.retryDelayMs(2))
+                    retryJob = null
+                    if (!stopped) openAttempt()
+                }
             }
         }
     }
@@ -414,7 +433,7 @@ internal class WebRtcLink(
             peerConnectionFactory.create()
         } catch (error: Throwable) {
             AppLog.e(error) { "Creating the peer connection failed" }
-            failAttempt(FailureKind.SETUP)
+            failAttempt(FailureKind.SETUP, requireLiveAttempt = false)
             return
         }
 
@@ -531,7 +550,9 @@ internal class WebRtcLink(
 
         if (role == SessionRole.HOST) {
             scope.launch {
-                suspendRunCatching { signaling.clear() }
+                // Only our own leftovers. The guest may already have answered
+                // into its outbox, and wiping that would lose the reply.
+                suspendRunCatching { signaling.clearOwnInbox() }
                 if (token == attemptToken) sendHandshake(1)
             }
         }

@@ -1,6 +1,7 @@
 package com.share.app.domain.policy
 
 import com.share.app.util.UriComponent
+import kotlin.uuid.Uuid
 
 /** Limits and wire formats shared with the web client. Change both or neither. */
 object SessionLimits {
@@ -16,6 +17,21 @@ object SessionLimits {
     /** Every retained payload pins a whole file in memory. */
     const val MAX_DOWNLOADABLE = 5
 
+    /**
+     * A receive with no chunk for this long is abandoned. Without it, a sender
+     * that dies mid-file leaves the receiver holding the partial bytes for good
+     * and refusing every later file as "already in progress".
+     */
+    const val INCOMING_STALL_TIMEOUT_MS = 30_000L
+
+    /**
+     * How long a guest that has gone quiet keeps its claim on the session. Long
+     * enough for a browser guest to move to another page of the site and come
+     * back, short enough that a code is not left unusable by a phone that simply
+     * closed.
+     */
+    const val GUEST_SLOT_GRACE_MS = 90_000L
+
     private const val TEXT_PREVIEW_LIMIT = 80
     const val DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
@@ -26,23 +42,13 @@ object SessionLimits {
         return cleaned.take(TEXT_PREVIEW_LIMIT - 3) + "..."
     }
 
-    fun safeFileName(name: String): String = name.replace(Regex("[^A-Za-z0-9_.-]+"), "_")
-
-    fun guessContentType(fileName: String): String =
-        when (fileName.substringAfterLast('.', "").lowercase()) {
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "gif" -> "image/gif"
-            "webp" -> "image/webp"
-            "bmp" -> "image/bmp"
-            "svg" -> "image/svg+xml"
-            "pdf" -> "application/pdf"
-            "txt" -> "text/plain"
-            "mp4" -> "video/mp4"
-            "mp3" -> "audio/mpeg"
-            "zip" -> "application/zip"
-            else -> DEFAULT_CONTENT_TYPE
-        }
+    /**
+     * The name a relayed file is stored under. Deliberately says nothing about
+     * the file: Storage rules cannot tell who is in a session, so this name is
+     * the only thing between a relayed file and anyone who guessed the code. It
+     * must not be derivable from the file's name or the time it was sent.
+     */
+    fun createObjectName(): String = Uuid.random().toString()
 }
 
 /**
@@ -82,8 +88,32 @@ object FileTransferProtocol {
     const val DISCONNECT_MESSAGE = "DISCONNECT"
     private const val NAME_PREFIX = "NAME:"
 
+    /**
+     * How many bytes the next file will be, sent just before its name.
+     *
+     * Optional on purpose: the protocol has no length of its own, so a
+     * truncated stream used to look like a complete file. A client that does
+     * not recognise it - including the 1.0 apps - ignores it, so sending it
+     * costs nothing, and a receiver that understands it can reject a short file.
+     */
+    private const val SIZE_PREFIX = "SIZE:"
+
     fun buildFileNameMessage(fileName: String): String = NAME_PREFIX + fileName
 
     fun parseFileNameMessage(value: String): String? =
         if (value.startsWith(NAME_PREFIX)) value.removePrefix(NAME_PREFIX) else null
+
+    fun buildFileSizeMessage(size: Long): String = SIZE_PREFIX + size
+
+    /**
+     * A plain non-negative integer, which is all either client ever sends.
+     * Anything else is treated as no announcement at all, so the length check
+     * is skipped rather than failing a good file.
+     */
+    fun parseFileSizeMessage(value: String): Long? {
+        if (!value.startsWith(SIZE_PREFIX)) return null
+        val digits = value.removePrefix(SIZE_PREFIX).trim()
+        if (digits.isEmpty() || !digits.all { it in '0'..'9' }) return null
+        return digits.toLongOrNull()
+    }
 }

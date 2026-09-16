@@ -18,3 +18,7 @@
 -dontwarn com.google.mlkit.**
 
 -dontwarn org.slf4j.**
+
+# cryptography-kotlin reaches for BouncyCastle only when it is on the classpath,
+# which it never is here - Android's own provider does the ECDH work.
+-dontwarn org.bouncycastle.**

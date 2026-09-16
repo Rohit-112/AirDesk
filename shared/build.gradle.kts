@@ -45,7 +45,7 @@ kotlin {
     cocoapods {
         summary = "Knotic shared UI and sync engine"
         homepage = "https://getknotic.web.app"
-        version = "1.0.1"
+        version = libs.versions.app.version.get()
         ios.deploymentTarget = "15.0"
         podfile = project.file("../iosApp/Podfile")
 
@@ -60,6 +60,8 @@ kotlin {
         pod("FirebaseAuth") { linkOnly = true }
         pod("FirebaseDatabase") { linkOnly = true }
         pod("FirebaseStorage") { linkOnly = true }
+        pod("FirebaseAnalytics") { linkOnly = true }
+        pod("FirebaseCrashlytics") { linkOnly = true }
         pod("WebRTC-SDK") {
             version = "125.6422.07"
             moduleName = "WebRTC"
@@ -121,6 +123,8 @@ kotlin {
             dependencies {
                 implementation(libs.webrtc.kmp)
                 implementation(libs.easyqrscan)
+                implementation(libs.gitlive.firebase.analytics)
+                implementation(libs.gitlive.firebase.crashlytics)
             }
         }
 
@@ -135,5 +139,16 @@ kotlin {
             implementation(libs.webrtc.java)
             implementation(libs.kotlinx.coroutines.swing)
         }
+
+        jvmTest.dependencies {
+            // Skia's native library, so the desktop image code runs for real.
+            implementation(compose.desktop.currentOs)
+            implementation(compose.desktop.uiTestJUnit4)
+        }
     }
+}
+
+// A test run against a mislabelled release is a test of the wrong thing.
+tasks.matching { it.name == "allTests" || it.name == "jvmTest" }.configureEach {
+    dependsOn(":checkVersion")
 }

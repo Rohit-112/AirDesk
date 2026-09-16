@@ -24,13 +24,13 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Cable
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
@@ -50,27 +50,37 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.share.app.domain.media.FileTypes
+import com.share.app.domain.media.ImageFormats
 import com.share.app.domain.model.HistoryItem
 import com.share.app.domain.model.HistoryStatus
 import com.share.app.domain.model.SessionStatus
 import com.share.app.domain.model.TransportMode
 import com.share.app.domain.model.WebRtcStatus
 import com.share.app.domain.policy.SessionLimits
+import com.share.app.ui.components.ConvertOptions
 import com.share.app.ui.components.Eyebrow
+import com.share.app.ui.components.FileThumbnail
 import com.share.app.ui.components.KnoticButton
 import com.share.app.ui.components.KnoticButtonStyle
 import com.share.app.ui.components.KnoticCard
 import com.share.app.ui.components.KnoticIconButton
+import com.share.app.ui.components.MediaPreview
 import com.share.app.ui.components.ProgressTrack
 import com.share.app.ui.components.QuietCard
 import com.share.app.ui.components.ToneBadge
+import com.share.app.ui.components.TransferDirection
 import com.share.app.ui.components.WaitingGraphic
+import com.share.app.ui.convert.ConversionStatus
 import com.share.app.ui.home.HomeIntent
 import com.share.app.ui.home.HomeUiState
 import com.share.app.ui.platform.sendShortcutHint
@@ -87,8 +97,9 @@ fun TransferStatusCard(state: HomeUiState) {
     val session = state.session
     val active = session.outgoingTransfer ?: session.incomingTransfer ?: return
     val isOutgoing = session.outgoingTransfer != null
-    // The receiving side is not told the total up front, so it reports bytes.
-    val percent = if (isOutgoing) active.progress else null
+    // A receiver only knows the total if the sender announced it; older
+    // clients do not, and then it can only report bytes.
+    val percent = if (isOutgoing || active.size != null) active.progress else null
 
     KnoticCard {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -139,7 +150,8 @@ fun InboxCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
     }
 
     AnimatedVisibility(visible = true, enter = fadeIn() + scaleIn(initialScale = 0.98f)) {
-        KnoticCard(borderColor = colors.emerald) {
+        // Announced by a screen reader as it changes, like the web inbox's live region.
+        KnoticCard(borderColor = colors.emerald, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
             Eyebrow("Just received", color = colors.success)
 
             session.incomingText?.let { text ->
@@ -154,11 +166,14 @@ fun InboxCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
             }
 
             session.incomingFile?.let { file ->
+                val type = FileTypes.describe(file.name, file.contentType)
+                MediaPreview(file.preview, file.name, type.kind, Modifier.padding(top = 12.dp))
+
                 Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ToneBadge(Icons.Rounded.FileDownload, colors.emeraldSoft, colors.emerald, size = 44.dp, rounded = false)
+                    FileThumbnail(name = file.name, contentType = type.mimeType, size = 44.dp)
                     Column(Modifier.weight(1f)) {
                         Text(file.name, color = colors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(humanFileSize(file.size), color = colors.textMuted, fontSize = 11.sp)
+                        Text("${type.label} · ${humanFileSize(file.size)}", color = colors.textMuted, fontSize = 11.sp)
                     }
                 }
                 KnoticButton(
@@ -167,6 +182,19 @@ fun InboxCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
                     icon = Icons.Rounded.Download,
                     modifier = Modifier.padding(top = 16.dp),
                 )
+
+                // Converting needs the bytes, so a relayed file has to be
+                // downloaded first.
+                if (file.localFileId != null) {
+                    ConvertOptions(
+                        fileName = file.name,
+                        mimeType = type.mimeType,
+                        status = state.conversion.statusFor(file.localFileId),
+                        onConvert = { onIntent(HomeIntent.ConvertIncomingFile(it)) },
+                        onSaveAgain = { onIntent(HomeIntent.SaveConvertedAgain) },
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
             }
         }
     }
@@ -368,7 +396,15 @@ fun ActivityCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
     KnoticCard {
         Eyebrow("Activity")
         Column(Modifier.padding(top = 8.dp)) {
-            visible.forEach { item -> ActivityRow(item, copied = state.copiedHistoryId == item.id, onIntent = onIntent) }
+            visible.forEach { item ->
+                ActivityRow(
+                    item = item,
+                    copied = state.copiedHistoryId == item.id,
+                    converting = state.convertPanelId == item.id,
+                    conversion = state.conversion.statusFor(item.id),
+                    onIntent = onIntent,
+                )
+            }
         }
         if (state.history.size > VISIBLE_HISTORY_BY_DEFAULT) {
             KnoticButton(
@@ -383,50 +419,76 @@ fun ActivityCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
 }
 
 @Composable
-private fun ActivityRow(item: HistoryItem, copied: Boolean, onIntent: (HomeIntent) -> Unit) {
+private fun ActivityRow(
+    item: HistoryItem,
+    copied: Boolean,
+    converting: Boolean,
+    conversion: ConversionStatus,
+    onIntent: (HomeIntent) -> Unit,
+) {
     val colors = KnoticTheme.colors
     val failed = item.status == HistoryStatus.FAILED
-    val sent = item.action.isOutgoing
+    val isMessage = item.text != null
+    val type = if (isMessage) null else FileTypes.describe(item.title, item.contentType)
+    // Converting needs the bytes, so only rows still holding the file offer it.
+    val canConvert = item.hasPayload && type != null && ImageFormats.conversionTargets(type.mimeType).isNotEmpty()
 
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        ToneBadge(
-            icon = if (sent) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
-            background = when {
-                failed -> colors.dangerSoft
-                sent -> colors.accentSoft
-                else -> colors.emeraldSoft
-            },
-            tint = when {
-                failed -> colors.danger
-                sent -> colors.accent
-                else -> colors.emerald
-            },
-            size = 28.dp,
-        )
-        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            Text(item.title, color = colors.text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val meta = buildString {
-                if (failed) append("Failed · ")
-                if (item.size > 0) append(humanFileSize(item.size)).append(" · ")
-                append(relativeTime(item.timestampMillis))
-            }
-            Text(meta, color = colors.textFaint, fontSize = 11.sp)
-        }
-        if (item.text != null) {
-            KnoticIconButton(
-                icon = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
-                contentDescription = if (copied) "Copied" else "Copy text",
-                onClick = { onIntent(HomeIntent.CopyHistoryText(item.id)) },
-                tint = if (copied) colors.success else colors.textMuted,
-                size = 34.dp,
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            FileThumbnail(
+                name = item.title,
+                contentType = item.contentType,
+                preview = item.thumbnail,
+                message = isMessage,
+                direction = if (item.action.isOutgoing) TransferDirection.SENT else TransferDirection.RECEIVED,
+                failed = failed,
             )
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(item.title, color = colors.text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val meta = buildString {
+                    if (failed) append("Failed · ")
+                    if (type != null) append(type.label).append(" · ")
+                    if (item.size > 0) append(humanFileSize(item.size)).append(" · ")
+                    append(relativeTime(item.timestampMillis))
+                }
+                Text(meta, color = colors.textFaint, fontSize = 11.sp)
+            }
+            if (item.text != null) {
+                KnoticIconButton(
+                    icon = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                    contentDescription = if (copied) "Copied" else "Copy text",
+                    onClick = { onIntent(HomeIntent.CopyHistoryText(item.id)) },
+                    tint = if (copied) colors.success else colors.textMuted,
+                    size = 34.dp,
+                )
+            }
+            if (canConvert) {
+                KnoticIconButton(
+                    icon = Icons.Rounded.AutoAwesome,
+                    contentDescription = if (converting) "Hide formats for ${item.title}" else "Save ${item.title} as another format",
+                    onClick = { onIntent(HomeIntent.ToggleConvertPanel(item.id)) },
+                    tint = if (converting) colors.violet else colors.textMuted,
+                    size = 34.dp,
+                )
+            }
+            if (item.hasPayload) {
+                KnoticIconButton(
+                    icon = Icons.Rounded.Download,
+                    contentDescription = "Save ${item.title}",
+                    onClick = { onIntent(HomeIntent.SaveHistoryFile(item.id)) },
+                    size = 34.dp,
+                )
+            }
         }
-        if (item.hasPayload) {
-            KnoticIconButton(
-                icon = Icons.Rounded.Download,
-                contentDescription = "Save ${item.title}",
-                onClick = { onIntent(HomeIntent.SaveHistoryFile(item.id)) },
-                size = 34.dp,
+
+        AnimatedVisibility(visible = canConvert && converting) {
+            ConvertOptions(
+                fileName = item.title,
+                mimeType = type?.mimeType.orEmpty(),
+                status = conversion,
+                onConvert = { onIntent(HomeIntent.ConvertHistoryFile(item.id, it)) },
+                onSaveAgain = { onIntent(HomeIntent.SaveConvertedAgain) },
+                modifier = Modifier.padding(start = 52.dp, bottom = 8.dp),
             )
         }
     }

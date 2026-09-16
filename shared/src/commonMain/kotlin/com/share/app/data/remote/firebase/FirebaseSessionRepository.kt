@@ -61,8 +61,13 @@ class FirebaseSessionRepository : SessionRemoteRepository {
             .catch { error -> AppLog.w(error) { "Listener on $field ended" } }
 
     override suspend fun registerDisconnectCleanup(code: String, role: SessionRole) {
-        session(code).child("${role.key}Online").onDisconnect().setValue(false)
-        session(code).child("${role.key}Clipboard").onDisconnect().setValue("")
+        // Removed rather than set to false: if the other device has already
+        // deleted the session, writing a value recreates the node as a shell
+        // holding one empty field - which is how a database fills up with codes
+        // nobody is connected to. Removing a path that is already gone does
+        // nothing, and both clients read an absent flag as offline.
+        session(code).child("${role.key}Online").onDisconnect().removeValue()
+        session(code).child("${role.key}Clipboard").onDisconnect().removeValue()
     }
 
     override suspend fun cancelDisconnectCleanup(code: String, role: SessionRole) {

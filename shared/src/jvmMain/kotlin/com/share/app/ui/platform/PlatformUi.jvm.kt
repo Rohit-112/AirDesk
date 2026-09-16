@@ -9,8 +9,8 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.awtTransferable
+import com.share.app.domain.media.FileTypes
 import com.share.app.domain.model.OutgoingFile
-import com.share.app.domain.policy.SessionLimits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.datatransfer.DataFlavor
@@ -59,7 +59,7 @@ actual fun Modifier.fileDropTarget(
 private fun File.toOutgoingFile() = OutgoingFile(
     name = name,
     size = length(),
-    contentType = SessionLimits.guessContentType(name),
+    contentType = FileTypes.detect(name).mimeType,
     readBytes = { withContext(Dispatchers.IO) { readBytes() } },
 )
 

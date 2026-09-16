@@ -40,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -209,10 +208,12 @@ private fun CodeColumn(state: HomeUiState, onIntent: (HomeIntent) -> Unit, modif
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            // Only typing releases this device's own code, not focus: moving
+            // through the field with a keyboard or a screen reader must not
+            // silently end a live pairing.
             CodeInput(
                 value = state.joinCode,
                 onValueChange = { onIntent(HomeIntent.JoinCodeChanged(it)) },
-                onFocused = { onIntent(HomeIntent.JoinFieldFocused) },
             )
             if (state.joining) {
                 KnoticButton(
@@ -267,7 +268,7 @@ private fun CodeDigits(code: String) {
 
 /** Exactly the width of the six boxes above it, so your code and theirs read as one control. */
 @Composable
-private fun CodeInput(value: String, onValueChange: (String) -> Unit, onFocused: () -> Unit) {
+private fun CodeInput(value: String, onValueChange: (String) -> Unit) {
     val colors = KnoticTheme.colors
     val width = DigitWidth * PairingCode.LENGTH + DigitGap * (PairingCode.LENGTH - 1)
     BasicTextField(
@@ -286,8 +287,7 @@ private fun CodeInput(value: String, onValueChange: (String) -> Unit, onFocused:
         ),
         modifier = Modifier
             .width(width)
-            .height(DigitHeight)
-            .onFocusChanged { if (it.isFocused) onFocused() },
+            .height(DigitHeight),
         decorationBox = { inner ->
             Box(
                 Modifier

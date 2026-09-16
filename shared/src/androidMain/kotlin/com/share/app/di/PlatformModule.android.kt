@@ -3,9 +3,15 @@ package com.share.app.di
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import com.share.app.data.analytics.FirebaseAnalyticsLogger
+import com.share.app.data.analytics.FirebaseCrashReporter
 import com.share.app.data.local.PREFERENCES_FILE_NAME
 import com.share.app.data.local.createPreferencesDataStore
+import com.share.app.data.media.AndroidImageProcessor
 import com.share.app.data.webrtc.WebRtcKmpPeerConnectionFactory
+import com.share.app.domain.analytics.AnalyticsLogger
+import com.share.app.domain.analytics.CrashReporter
+import com.share.app.domain.media.ImageProcessor
 import com.share.app.domain.repository.ClipboardRepository
 import com.share.app.domain.webrtc.PeerConnectionFactoryPort
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +24,9 @@ actual val platformModule: Module = module {
     single { createPreferencesDataStore { androidContext().filesDir.resolve(PREFERENCES_FILE_NAME).absolutePath } }
     single<ClipboardRepository> { AndroidClipboardRepository(androidContext()) }
     single<PeerConnectionFactoryPort> { WebRtcKmpPeerConnectionFactory(get()) }
+    single<ImageProcessor> { AndroidImageProcessor() }
+    single<AnalyticsLogger> { FirebaseAnalyticsLogger() }
+    single<CrashReporter> { FirebaseCrashReporter() }
 }
 
 private class AndroidClipboardRepository(private val context: Context) : ClipboardRepository {

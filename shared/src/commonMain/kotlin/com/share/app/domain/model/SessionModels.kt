@@ -1,5 +1,7 @@
 package com.share.app.domain.model
 
+import com.share.app.domain.media.ImagePreview
+
 /** Anonymous sign-in progress. Nothing works until this is [READY]. */
 enum class AuthStatus { AUTHENTICATING, READY, ERROR }
 
@@ -27,16 +29,22 @@ enum class TransportMode { P2P, RELAY, UNAVAILABLE }
 data class IncomingFile(
     val name: String,
     val size: Long,
+    /** Read from the bytes once they are here; the sender's claim until then. */
     val contentType: String,
     val storagePath: String? = null,
     val localFileId: String? = null,
+    /** The picture itself, when the platform could draw one. */
+    val preview: ImagePreview? = null,
 )
 
 data class ActiveFileTransfer(
     val name: String,
     val progress: Int,
     val transferredBytes: Long,
-    /** Unknown on the receiving side; the sender does not announce it. */
+    /**
+     * The total. Unknown on the receiving side unless the sender announced it,
+     * which older clients do not.
+     */
     val size: Long? = null,
 )
 

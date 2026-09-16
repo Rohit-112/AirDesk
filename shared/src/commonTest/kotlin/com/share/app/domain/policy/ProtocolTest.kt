@@ -52,6 +52,36 @@ class FilePayloadTest {
     }
 }
 
+class FileTransferProtocolTest {
+    @Test
+    fun announcesTheSizeTheWayTheWebClientDoes() {
+        assertEquals("SIZE:2048", FileTransferProtocol.buildFileSizeMessage(2048))
+        assertEquals(2048L, FileTransferProtocol.parseFileSizeMessage("SIZE:2048"))
+        assertEquals(0L, FileTransferProtocol.parseFileSizeMessage("SIZE:0"))
+    }
+
+    @Test
+    fun treatsAnythingButAPlainCountAsNoAnnouncement() {
+        assertNull(FileTransferProtocol.parseFileSizeMessage("SIZE:"))
+        assertNull(FileTransferProtocol.parseFileSizeMessage("SIZE:-1"))
+        assertNull(FileTransferProtocol.parseFileSizeMessage("SIZE:1.5"))
+        assertNull(FileTransferProtocol.parseFileSizeMessage("NAME:SIZE:12"))
+        assertNull(FileTransferProtocol.parseFileSizeMessage("END"))
+    }
+
+    @Test
+    fun neverMistakesAFileNamedLikeAnAnnouncement() {
+        assertEquals("SIZE:12.txt", FileTransferProtocol.parseFileNameMessage("NAME:SIZE:12.txt"))
+    }
+
+    @Test
+    fun namesRelayedFilesSoNothingAboutThemCanBeGuessed() {
+        val first = SessionLimits.createObjectName()
+        assertTrue(first != SessionLimits.createObjectName())
+        assertTrue(first.matches(Regex("[0-9a-f-]{36}")), first)
+    }
+}
+
 class ConnectionPolicyTest {
     @Test
     fun backsOffAndCaps() {

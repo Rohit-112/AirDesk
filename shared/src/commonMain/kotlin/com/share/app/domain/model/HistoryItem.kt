@@ -1,5 +1,7 @@
 package com.share.app.domain.model
 
+import com.share.app.domain.media.ImagePreview
+
 enum class HistoryAction(val label: String) {
     SENT_TEXT("Sent Text"),
     RECEIVED_TEXT("Received Text"),
@@ -25,6 +27,13 @@ data class HistoryItem(
     val text: String? = null,
     /** A received file whose bytes are still held, so it can be saved again. */
     val hasPayload: Boolean = false,
+    /** What the file is, read from its bytes. Null for text. */
+    val contentType: String? = null,
+    /**
+     * A small picture of the file, attached once it has been drawn. It outlives
+     * the file's own bytes, so older rows still show what they were.
+     */
+    val thumbnail: ImagePreview? = null,
 )
 
 enum class ThemePreference(val key: String) {

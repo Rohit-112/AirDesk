@@ -1,10 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Only used while the in-app QR scanner is open. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Firebase Analytics asks for these; nothing here is advertising (see below). -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
+        tools:node="remove" />
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -50,5 +61,20 @@
                     android:host="join" />
             </intent-filter>
         </activity>
+
+        <!--
+            Analytics counts which features are used, nothing more - the same
+            measurement the website does. There is no advertising here, so the
+            advertising ID and ad-personalisation signals are switched off.
+        -->
+        <meta-data
+            android:name="google_analytics_adid_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_default_allow_ad_personalization_signals"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_default_allow_ad_user_data"
+            android:value="false" />
     </application>
 </manifest>
