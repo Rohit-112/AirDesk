@@ -89,16 +89,21 @@ class HomeViewModel(
         when (intent) {
             is HomeIntent.JoinCodeChanged -> onJoinCodeChanged(intent.value)
             HomeIntent.CancelJoin -> {
-                // Backing out has to hand a working code back.
+                // Backing out has to hand a working code back - a fresh one, never
+                // the code of the session that could not be joined.
                 updateState { copy(joinCode = "") }
-                pairingUseCase.createSession()
+                pairingUseCase.startNewCode()
             }
             HomeIntent.NewCodeClicked -> {
                 if (currentState.busy) return
                 updateState { copy(joinCode = "") }
                 pairingUseCase.startNewCode()
             }
-            HomeIntent.DisconnectClicked -> pairingUseCase.disconnect()
+            HomeIntent.DisconnectClicked -> {
+                // Disconnecting leaves this device hosting a fresh code, ready to pair again.
+                updateState { copy(joinCode = "") }
+                pairingUseCase.disconnect()
+            }
             HomeIntent.CopyCodeClicked -> copyCode()
             HomeIntent.ScanClicked -> updateState { copy(isScannerOpen = true) }
             HomeIntent.ScannerDismissed -> updateState { copy(isScannerOpen = false) }

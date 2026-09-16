@@ -27,7 +27,6 @@ class PairingUseCase(private val engine: SessionEngine) {
     val session: StateFlow<AppSessionState> get() = engine.state
 
     fun startNewCode() = engine.startNewCode()
-    fun createSession() = engine.createSession()
     fun joinSession(code: String, method: JoinMethod) = engine.joinSession(code, method)
     fun beginJoin() = engine.beginJoin()
     fun disconnect() = engine.disconnect()

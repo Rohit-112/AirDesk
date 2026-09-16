@@ -398,21 +398,32 @@ class SessionEngine(
         scope.launch { core.update { it.copy(error = null) } }
     }
 
-    /** Host a session under [code], or a fresh random code. */
-    fun createSession(code: String? = null) {
-        scope.launch { pairingMutex.withLock { createSessionLocked(code) } }
+    /**
+     * Throw away whatever is running and hand out a brand new code.
+     *
+     * The old session is closed before the new code goes into the state:
+     * disconnecting reads the code from there, and doing it the other way round
+     * deleted a node that did not exist yet while the real one - still marked
+     * online - kept the other device "paired" to nothing.
+     */
+    fun startNewCode() {
+        scope.launch { pairingMutex.withLock { rehostLocked() } }
     }
 
-    /** Throw away whatever is running and hand out a brand new code. */
-    fun startNewCode() {
-        scope.launch {
-            pairingMutex.withLock {
-                val next = PairingCode.generate()
-                core.update { it.copy(sessionCode = next, sessionError = null) }
-                if (core.value.sessionStatus == SessionStatus.CONNECTED) disconnectLocked()
-                createSessionLocked(next)
-            }
-        }
+    /**
+     * Leave the session on purpose. The device is handed a fresh code straight
+     * away, so it is ready to pair again instead of showing an empty card - and
+     * the old code, which the other device may still be holding, is never
+     * reused.
+     */
+    fun disconnect() {
+        scope.launch { pairingMutex.withLock { rehostLocked() } }
+    }
+
+    private suspend fun rehostLocked() {
+        if (core.value.sessionStatus == SessionStatus.CONNECTED) disconnectLocked()
+        core.update { it.copy(sessionError = null) }
+        createSessionLocked(PairingCode.generate())
     }
 
     /** Join someone else's session, leaving the current one first. */
@@ -431,10 +442,6 @@ class SessionEngine(
                 pendingDeepLinkCode = code
             }
         }
-    }
-
-    fun disconnect() {
-        scope.launch { pairingMutex.withLock { disconnectLocked() } }
     }
 
     /**
@@ -518,7 +525,12 @@ class SessionEngine(
         }
     }
 
-    private suspend fun createSessionLocked(overrideCode: String?) {
+    /**
+     * Hosts [requestedCode]. Never falls back to whatever code is on screen: after
+     * a failed join that is the other device's code, and hosting it only ever
+     * ends in "already in use".
+     */
+    private suspend fun createSessionLocked(requestedCode: String) {
         val session = core.value
         val userId = session.userId
         if (session.authStatus != AuthStatus.READY || userId == null) {
@@ -526,7 +538,7 @@ class SessionEngine(
             return
         }
 
-        val sanitized = PairingCode.sanitize(overrideCode ?: session.sessionCode)
+        val sanitized = PairingCode.sanitize(requestedCode)
         val code = if (PairingCode.isValid(sanitized)) sanitized else PairingCode.generate()
         val device = deviceId.orEmpty()
 
