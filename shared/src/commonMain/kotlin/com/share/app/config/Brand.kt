@@ -11,7 +11,7 @@ object Brand {
      * Bumped with every release, together with `app-version` in the version
      * catalog; `./gradlew checkVersion` fails when the two disagree.
      */
-    const val VERSION = "1.2.0"
+    const val VERSION = "1.2.1"
     const val LEGAL_NAME = "Knotic"
 }
 
@@ -25,7 +25,7 @@ object AboutContent {
         ),
         InfoItem(
             title = "Send anything",
-            body = "Paste text or attach a file. Files go straight between the devices, up to 20 MB.",
+            body = "Paste text or attach a file. It appears on the other device in seconds, up to 20 MB a file.",
         ),
         InfoItem(
             title = "It closes itself",
@@ -33,26 +33,28 @@ object AboutContent {
         ),
     )
 
+    // Outcomes, never mechanics: the same wording the website uses, and for the
+    // same reason - how any of this is built is nobody else's business.
     val privacy = listOf(
         InfoItem(
-            title = "Files go device to device",
-            body = "When a direct route exists, files travel straight between your two devices over an encrypted connection and never touch a server.",
+            title = "Your files are not stored",
+            body = "What you send goes to the other device and nowhere else. It is not kept, not scanned, and not used for anything.",
         ),
         InfoItem(
-            title = "Text is end to end encrypted",
-            body = "The two devices agree on a key directly with each other, and only the public halves ever travel. The key is never sent, never stored, and is different for every session - so the database only ever holds ciphertext that the server cannot open.",
+            title = "Text is encrypted",
+            body = "Text is encrypted before it leaves your device and can only be read on the two devices in the session. We cannot read it.",
         ),
         InfoItem(
             title = "Images are converted on your device",
-            body = "Saving a photo as JPG, PNG or WEBP happens inside the app. The picture is redrawn locally and never uploaded anywhere to be converted.",
+            body = "Saving a photo as JPG, PNG or WEBP happens on this device. The picture is never uploaded anywhere to be converted.",
         ),
         InfoItem(
             title = "No account, nothing kept",
-            body = "You are signed in anonymously. A session is deleted when you disconnect, and closes itself after 15 minutes of inactivity.",
+            body = "There is no sign-up and no profile. A session is deleted when you disconnect, and closes itself after 15 minutes of inactivity.",
         ),
         InfoItem(
             title = "Anonymous usage and crash reports",
-            body = "On Android and iOS the app counts which features are used and reports crashes, so they can be fixed. Neither ever includes the text you send, a file, a file name or the pairing code.",
+            body = "On Android and iPhone the app counts which features are used and reports crashes, so they can be fixed. Neither ever includes the text you send, a file, a file name or the pairing code.",
         ),
     )
 
@@ -66,8 +68,8 @@ object AboutContent {
             body = "No. There is no sign-up and no login. The other device can use this app or simply open ${AppConfig().siteUrl} in a browser.",
         ),
         InfoItem(
-            title = "Is it safe? Are my files uploaded to a server?",
-            body = "When a direct connection is possible, files travel straight between your two devices over an encrypted connection and are never stored on a server. Text is end-to-end encrypted with a key unique to each session, so the server cannot read it. Sessions close after 15 minutes of inactivity.",
+            title = "Is it safe? Are my files stored anywhere?",
+            body = "What you send goes to the other device over an encrypted connection and is not stored, scanned or used for anything. Text is encrypted so that only the two devices in the session can read it. Sessions close after 15 minutes of inactivity and take everything in them along.",
         ),
         InfoItem(
             title = "How large a file can I send?",
@@ -79,11 +81,11 @@ object AboutContent {
         ),
         InfoItem(
             title = "Why won't my two devices connect?",
-            body = "Some mobile networks block direct device-to-device connections. Put both devices on the same Wi-Fi network, or switch your phone from mobile data to Wi-Fi, then pair again.",
+            body = "Some mobile networks will not let two devices reach each other. Put both devices on the same Wi-Fi network, or switch your phone from mobile data to Wi-Fi, then pair again.",
         ),
         InfoItem(
             title = "Can I convert an iPhone HEIC photo to JPG?",
-            body = "Yes. Send the photo across and ${Brand.NAME} offers Save as JPG, PNG or WEBP on the device that received it, or use Convert only with no pairing at all. The picture is redrawn on your device and never uploaded. HEIC opens on Android 9 and later and on iPhone; the desktop app cannot read it yet, so convert it on the phone or in the browser.",
+            body = "Yes. Send the photo across and ${Brand.NAME} offers Save as JPG, PNG or WEBP on the device that received it, or use Convert only with no pairing at all. The conversion happens on your device and the photo is never uploaded. It works on Android 9 and later and on iPhone; the desktop app cannot open HEIC yet, so convert it on the phone or in the browser.",
         ),
         InfoItem(
             title = "Does it preview the file I received?",

@@ -284,7 +284,7 @@ internal class FileTransferEngine(
             if (!relayAvailable) {
                 outgoingActive = false
                 onError(
-                    "No direct connection to the other device, and the cloud relay is off. " +
+                    "This device cannot reach the other one right now. " +
                         "Put both devices on the same Wi-Fi and try again.",
                 )
                 return
@@ -292,7 +292,7 @@ internal class FileTransferEngine(
             if (file.size > SessionLimits.MAX_RELAY_FILE_SIZE) {
                 outgoingActive = false
                 onError(
-                    "No direct connection, so this would go through the cloud relay - which is limited to 5 MB. " +
+                    "On these networks the limit for this file drops to 5 MB. " +
                         "Put both devices on the same Wi-Fi to send the full 20 MB.",
                 )
                 return
@@ -327,7 +327,7 @@ internal class FileTransferEngine(
             analytics.log(AnalyticsEvent.FileSendFailed(route))
             onError(
                 if (useChannel && relayAvailable) {
-                    "Direct transfer failed. Try again to send it through the cloud relay."
+                    "Sending failed. Try again - it will take another route this time."
                 } else {
                     "Unable to send file right now."
                 },

@@ -40,6 +40,12 @@ compose.desktop {
     application {
         mainClass = "com.share.app.desktop.MainKt"
 
+        // The app is a window that waits for the user, not a workload. The
+        // serial collector starts quicker and keeps fewer threads alive, and a
+        // small starting heap avoids growing one during startup - the busiest
+        // moment there is.
+        jvmArgs += listOf("-XX:+UseSerialGC", "-Xms32m")
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Knotic"

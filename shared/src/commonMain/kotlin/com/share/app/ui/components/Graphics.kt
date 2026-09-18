@@ -1,10 +1,6 @@
 package com.share.app.ui.components
 
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -67,9 +63,8 @@ fun BrandLogo(size: Dp = 28.dp, modifier: Modifier = Modifier) {
 @Composable
 fun HeroGraphic(modifier: Modifier = Modifier) {
     val colors = KnoticTheme.colors
-    val transition = rememberInfiniteTransition(label = "hero")
-    val travel by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(3400), RepeatMode.Restart), label = "packet")
-    val dash by transition.animateFloat(0f, -24f, infiniteRepeatable(tween(1600, easing = LinearEasing)), label = "dash")
+    val travel = loopingFloat(durationMillis = 3400, label = "packet", restingValue = 0.35f)
+    val dash = loopingFloat(durationMillis = 1600, label = "dash", targetValue = -24f, easing = LinearEasing)
 
     Canvas(modifier.fillMaxWidth().aspectRatio(320f / 132f)) {
         scale(size.width / 320f, pivot = Offset.Zero) {
@@ -131,8 +126,8 @@ fun HeroGraphic(modifier: Modifier = Modifier) {
 @Composable
 fun WaitingGraphic(active: Boolean, modifier: Modifier = Modifier) {
     val colors = KnoticTheme.colors
-    val transition = rememberInfiniteTransition(label = "waiting")
-    val drop by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(2800), RepeatMode.Restart), label = "drop")
+    // Rests a third of the way in, where the packet sits above the tray.
+    val drop = loopingFloat(durationMillis = 2800, label = "drop", restingValue = 0.35f)
 
     Canvas(modifier.size(width = 96.dp, height = 60.dp)) {
         scale(size.width / 96f, pivot = Offset.Zero) {

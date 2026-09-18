@@ -139,7 +139,6 @@ class HomeViewModel(
             HomeIntent.ConvertOnlyClicked -> sendEffect(HomeEffect.NavigateToConvert)
 
             HomeIntent.ToggleAdvanced -> updateState { copy(isAdvancedOpen = !isAdvancedOpen) }
-            HomeIntent.ToggleConnectionDetail -> updateState { copy(showConnectionDetail = !showConnectionDetail) }
             HomeIntent.RetryDirectConnection -> pairingUseCase.reconnectFileSharing()
 
             HomeIntent.DismissError -> pairingUseCase.clearError()

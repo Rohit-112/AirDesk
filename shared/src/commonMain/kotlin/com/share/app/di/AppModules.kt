@@ -91,10 +91,15 @@ val presentationModule = module {
 expect val platformModule: Module
 
 /**
- * Starts DI and the session engine. Call once, before any UI, from each
- * platform's entry point. Firebase must already be initialised.
+ * Starts DI, and by default the session engine with it. Call once, before any
+ * UI, from each platform's entry point. Firebase must already be initialised -
+ * unless [startEngine] is false, which leaves everything that talks to the
+ * network for [startSessionEngine] to begin later.
+ *
+ * Nothing here reaches for Firebase: every repository resolves it inside its
+ * own methods, so building the graph is cheap and safe to do first.
  */
-fun initKoin(appDeclaration: KoinAppDeclaration = {}): KoinApplication {
+fun initKoin(startEngine: Boolean = true, appDeclaration: KoinAppDeclaration = {}): KoinApplication {
     val application = startKoin {
         appDeclaration()
         modules(platformModule, dataModule, domainModule, presentationModule)
@@ -104,8 +109,13 @@ fun initKoin(appDeclaration: KoinAppDeclaration = {}): KoinApplication {
     if (crashReporter != NoOpCrashReporter) {
         Logger.addLogWriter(CrashReportingLogWriter(crashReporter))
     }
-    application.koin.get<SessionEngine>().start()
+    if (startEngine) application.koin.get<SessionEngine>().start()
     return application
+}
+
+/** Signs in and starts hosting a code. Safe to call more than once. */
+fun startSessionEngine() {
+    KoinPlatform.getKoinOrNull()?.get<SessionEngine>()?.start()
 }
 
 /** Hands a scanned or tapped `?code=` link to the running session engine. */

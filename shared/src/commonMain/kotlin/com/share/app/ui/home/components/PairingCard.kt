@@ -3,10 +3,6 @@ package com.share.app.ui.home.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -54,6 +50,7 @@ import com.share.app.domain.model.SessionStatus
 import com.share.app.domain.policy.PairingCode
 import com.share.app.ui.components.KnoticButton
 import com.share.app.ui.components.KnoticButtonStyle
+import com.share.app.ui.components.loopingFloat
 import com.share.app.ui.components.KnoticCard
 import com.share.app.ui.components.KnoticIconButton
 import com.share.app.ui.home.HomeIntent
@@ -346,12 +343,7 @@ private fun QrColumn(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
 @Composable
 private fun QrSkeleton() {
     val colors = KnoticTheme.colors
-    val shimmer by rememberInfiniteTransition(label = "qr-skeleton").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Restart),
-        label = "shimmer",
-    )
+    val shimmer = loopingFloat(durationMillis = 1400, label = "qr-skeleton", restingValue = 0.5f)
     Box(
         Modifier
             .fillMaxSize()

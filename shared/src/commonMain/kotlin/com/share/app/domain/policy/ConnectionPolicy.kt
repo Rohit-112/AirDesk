@@ -29,7 +29,7 @@ object ConnectionPolicy {
     private const val RETRY_CEILING_MS = 6_000L
 
     const val WHY_DIRECT_FAILED =
-        "Both devices are on networks that block direct connections - common on mobile data."
+        "The two devices cannot reach each other on these networks - common on mobile data."
 
     const val HOW_TO_FIX =
         "Put both devices on the same Wi-Fi, or share a hotspot from one of them."
@@ -60,17 +60,22 @@ object ConnectionPolicy {
             return "$base Retrying (attempt ${completedAttempts + 1} of $MAX_CONNECT_ATTEMPTS)..."
         }
         if (fallbackAvailable) {
-            return "$base $WHY_DIRECT_FAILED Files up to 5 MB will go through the cloud relay instead. " +
+            return "$base $WHY_DIRECT_FAILED Smaller files will still go through. " +
                 "For anything larger: ${HOW_TO_FIX.lowercase()}"
         }
         return "$base $WHY_DIRECT_FAILED $HOW_TO_FIX"
     }
 }
 
+/**
+ * What the user sees when something fails. Every one describes the effect -
+ * sending is not ready - and none names the machinery underneath or which
+ * part of it gave up.
+ */
 enum class FailureKind(val message: String) {
-    TIMEOUT("File sharing could not connect in time."),
-    ICE("No usable network route to the other device."),
-    CHANNEL("The file-sharing channel closed."),
-    SETUP("File-sharing setup failed."),
-    DROPPED("The file-sharing connection dropped."),
+    TIMEOUT("Could not get ready to send in time."),
+    ICE("Could not reach the other device."),
+    CHANNEL("Sending stopped working."),
+    SETUP("Could not get ready to send."),
+    DROPPED("The connection to the other device dropped."),
 }

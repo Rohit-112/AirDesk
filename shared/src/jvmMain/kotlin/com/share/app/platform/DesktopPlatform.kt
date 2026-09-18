@@ -5,11 +5,10 @@ import co.touchlab.kermit.Logger
 import com.google.firebase.FirebasePlatform
 import com.share.app.di.handleIncomingLink
 import com.share.app.di.initKoin
-import com.share.app.domain.session.SessionEngine
+import com.share.app.di.startSessionEngine
 import dev.gitlive.firebase.Firebase
 import dev.gitlive.firebase.FirebaseOptions
 import dev.gitlive.firebase.initialize
-import org.koin.mp.KoinPlatform
 import java.io.File
 import java.util.Properties
 
@@ -48,10 +47,26 @@ data class DesktopFirebaseConfig(
     }
 }
 
-/** Desktop entry points into the shared module. */
+/**
+ * Desktop entry points into the shared module.
+ *
+ * Split in two so the window can be on screen while the slow half runs:
+ * building the object graph takes a moment, starting Firebase takes half a
+ * second, and only the first of those is needed to draw anything.
+ */
 object KnoticDesktop {
 
-    fun initialize(firebase: DesktopFirebaseConfig, args: Array<String>) {
+    /** The object graph. Cheap, and the first frame needs it. */
+    fun startDependencies() {
+        initKoin(startEngine = false)
+    }
+
+    /**
+     * Everything that reaches the network: Firebase, then signing in and
+     * hosting a code. Call off the main thread - it neither draws nor blocks
+     * anything that does.
+     */
+    fun startBackend(firebase: DesktopFirebaseConfig, args: Array<String>) {
         FirebasePlatform.initializeFirebasePlatform(PropertiesFirebasePlatform(DesktopPaths.dataDir))
         Firebase.initialize(
             Application(),
@@ -65,14 +80,9 @@ object KnoticDesktop {
                 authDomain = firebase.authDomain,
             ),
         )
-        initKoin()
+        startSessionEngine()
         // `Knotic --code 123456`, or a join URL passed by the OS.
         args.firstOrNull { it.any(Char::isDigit) }?.let(::handleIncomingLink)
-    }
-
-    /** Clears presence before the window goes away. Bounded, so closing never hangs. */
-    suspend fun shutdown() {
-        KoinPlatform.getKoinOrNull()?.get<SessionEngine>()?.shutdown()
     }
 }
 

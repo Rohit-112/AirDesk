@@ -29,7 +29,6 @@ data class HomeUiState(
     val copiedHistoryId: String? = null,
     val isScannerOpen: Boolean = false,
     val isAdvancedOpen: Boolean = false,
-    val showConnectionDetail: Boolean = false,
     val isActivityExpanded: Boolean = false,
     val isDraggingFile: Boolean = false,
     val canScan: Boolean = isQrScanSupported,
@@ -91,7 +90,6 @@ sealed interface HomeIntent : UiIntent {
 
     /* Connection detail */
     data object ToggleAdvanced : HomeIntent
-    data object ToggleConnectionDetail : HomeIntent
     data object RetryDirectConnection : HomeIntent
 
     /* Chrome */

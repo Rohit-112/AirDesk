@@ -1,10 +1,10 @@
 [versions]
 # The release. Brand.kt and the iOS project have to say the same thing;
 # `./gradlew checkVersion` fails the build when they drift apart.
-app-version = "1.2.0"
+app-version = "1.2.1"
 # Raised on every release: Android and iOS both refuse to install a build
 # over one with the same number.
-app-build = "2"
+app-build = "3"
 
 # Build
 agp = "9.3.1"

@@ -95,6 +95,26 @@ class ConnectionPolicyTest {
         assertTrue(ConnectionPolicy.describeFailure(FailureKind.TIMEOUT, 1, false).contains("attempt 2 of 3"))
         assertTrue(ConnectionPolicy.describeFailure(FailureKind.TIMEOUT, 3, false).contains(ConnectionPolicy.HOW_TO_FIX))
     }
+
+    /**
+     * These strings are read by users and quoted in support threads. They must
+     * describe what happened, never how any of it is built.
+     */
+    @Test
+    fun neverNamesTheMachineryUnderneath() {
+        val forbidden = Regex(
+            "webrtc|\\bice\\b|stun|turn server|peer.to.peer|\\bp2p\\b|data channel|relay|firebase|google|database|signall?ing",
+            RegexOption.IGNORE_CASE,
+        )
+        for (kind in FailureKind.entries) {
+            for (fallbackAvailable in listOf(true, false)) {
+                for (attempts in listOf(0, ConnectionPolicy.MAX_CONNECT_ATTEMPTS)) {
+                    val message = ConnectionPolicy.describeFailure(kind, attempts, fallbackAvailable)
+                    assertTrue(!message.contains(forbidden), message)
+                }
+            }
+        }
+    }
 }
 
 class SignalingCodecTest {

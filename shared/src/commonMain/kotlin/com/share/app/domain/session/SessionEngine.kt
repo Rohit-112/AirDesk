@@ -56,7 +56,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The sync engine: anonymous sign-in, hosting and joining a session, the end to
@@ -503,16 +502,6 @@ class SessionEngine(
      * which is also the inbox file's local id. Null once it has been let go.
      */
     suspend fun heldFile(id: String): ByteArray? = withContext(dispatcher) { historyRepository.payload(id) }
-
-    /** Best effort, for a desktop window closing. Mobile relies on onDisconnect. */
-    suspend fun shutdown() {
-        withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) {
-            withContext(dispatcher) {
-                transport.update(TransportInputs())
-                suspendRunCatching { clearRemotePresence() }
-            }
-        }
-    }
 
     /* ------------------------------------------------------------------ *
      * Pairing
@@ -1037,7 +1026,7 @@ class SessionEngine(
      * over the session node, in the same shape the web client uses.
      */
     private suspend fun relaySend(file: OutgoingFile, bytes: ByteArray, contentType: String, onProgress: (Long) -> Unit) {
-        val code = activeSessionCode ?: error("No active session to relay through.")
+        val code = activeSessionCode ?: error("No active session to send through.")
         val role = core.value.role
         // Random, never the file name: the object name is what keeps a relayed
         // file private, since Storage rules cannot tell who is in the session.
@@ -1137,9 +1126,5 @@ class SessionEngine(
 
     private fun setError(message: String) {
         core.update { it.copy(error = message) }
-    }
-
-    private companion object {
-        const val SHUTDOWN_TIMEOUT_MS = 1_500L
     }
 }

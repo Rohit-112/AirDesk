@@ -1,9 +1,5 @@
 package com.share.app.ui.components
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -202,13 +198,8 @@ fun StatusChip(label: String, tone: ChipTone, modifier: Modifier = Modifier) {
 private fun StatusDot(color: Color, pulsing: Boolean) {
     Box(Modifier.size(8.dp), contentAlignment = Alignment.Center) {
         if (pulsing) {
-            val transition = rememberInfiniteTransition(label = "ping")
-            val progress by transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(2200), RepeatMode.Restart),
-                label = "ping-progress",
-            )
+            // Rests fully expanded and invisible, so a still dot is just a dot.
+            val progress = loopingFloat(durationMillis = 2200, label = "ping", restingValue = 1f)
             Box(
                 Modifier
                     .size(8.dp)

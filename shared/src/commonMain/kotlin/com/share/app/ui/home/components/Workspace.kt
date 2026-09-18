@@ -115,7 +115,6 @@ fun TransferStatusCard(state: HomeUiState) {
                     if (percent != null) append(" $percent%")
                     append(" · ").append(humanFileSize(active.transferredBytes))
                     active.size?.let { append(" of ").append(humanFileSize(it)) }
-                    if (session.transportMode == TransportMode.RELAY) append(" · via relay")
                 }
                 Text(detail, color = colors.textMuted, fontSize = 11.sp)
             }
@@ -263,11 +262,7 @@ fun Composer(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
             }
 
             Text(
-                text = when {
-                    remaining < 120 -> "$remaining left"
-                    state.session.transportMode == TransportMode.RELAY -> "Via relay"
-                    else -> sendShortcutHint.orEmpty()
-                },
+                text = if (remaining < 120) "$remaining left" else sendShortcutHint.orEmpty(),
                 color = colors.textFaint,
                 fontSize = 11.sp,
                 maxLines = 1,
@@ -300,9 +295,10 @@ fun AdvancedPanel(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
         ) {
             Icon(Icons.Rounded.Cable, null, tint = colors.textFaint, modifier = Modifier.size(16.dp))
             Text(
+                // Says whether sending will work, never how it works: the route
+                // a file takes is ours, not the user's business.
                 text = when (session.transportMode) {
-                    TransportMode.P2P -> "Direct connection"
-                    TransportMode.RELAY -> "Cloud relay"
+                    TransportMode.P2P, TransportMode.RELAY -> "Ready to send"
                     TransportMode.UNAVAILABLE -> "Not connected"
                 },
                 color = colors.text,
@@ -329,57 +325,16 @@ fun AdvancedPanel(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
                     )
                 }
 
+                // The raw connection state that used to be listed here described
+                // the machinery in detail, so it is gone.
                 KnoticButton(
-                    text = "Retry direct connection",
+                    text = "Reconnect",
                     onClick = { onIntent(HomeIntent.RetryDirectConnection) },
                     icon = Icons.Rounded.Refresh,
                     style = KnoticButtonStyle.SECONDARY,
                     enabled = state.connected && session.peerOnline,
                     compact = true,
                 )
-
-                Text(
-                    text = (if (state.showConnectionDetail) "Hide" else "Show") + " connection detail",
-                    color = colors.textFaint,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onIntent(HomeIntent.ToggleConnectionDetail) }.padding(vertical = 4.dp),
-                )
-
-                if (state.showConnectionDetail) {
-                    val d = session.webrtcDiagnostics
-                    val rows = listOf(
-                        "Connection" to d.connectionState,
-                        "ICE" to d.iceConnectionState,
-                        "Gathering" to d.iceGatheringState,
-                        "Channel" to d.dataChannelState,
-                        "Local candidates" to d.localCandidateCount.toString(),
-                        "Remote candidates" to d.remoteCandidateCount.toString(),
-                        "Candidate errors" to d.candidateErrorCount.toString(),
-                        "Relay server" to when (d.hasTurn) {
-                            null -> "Unknown"
-                            true -> "Configured"
-                            false -> "None"
-                        },
-                        "Last failure" to (d.lastFailureReason ?: "None"),
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        rows.forEach { (label, value) ->
-                            Row(Modifier.fillMaxWidth()) {
-                                Text(label, color = colors.textFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                Text(
-                                    value,
-                                    color = colors.textMuted,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1.4f),
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
     }
